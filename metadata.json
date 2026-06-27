@@ -1,0 +1,6 @@
+{
+  "name": "KITTEN — Smart Home Assistant",
+  "description": "Futuristic Glassmorphic IoT Dashboard for KITTEN Smart Home & Environment Control System",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

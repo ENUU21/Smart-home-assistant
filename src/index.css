@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Immersive UI Core Classes */
+.glass-card {
+  background: rgba(20, 35, 58, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(0, 255, 208, 0.15) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37) !important;
+  border-radius: 1.25rem !important;
+}
+
+.accent-cyan {
+  color: #00ffd0 !important;
+}
+
+.glow-cyan {
+  text-shadow: 0 0 10px rgba(0, 255, 208, 0.6) !important;
+}
+
+.accent-blue {
+  color: #0077ff !important;
+}
+
+.btn-mode {
+  background: rgba(0, 119, 255, 0.1) !important;
+  border: 1px solid rgba(0, 119, 255, 0.3) !important;
+  color: #94a3b8 !important;
+  transition: all 0.3s ease !important;
+}
+
+.btn-mode:hover {
+  background: rgba(0, 119, 255, 0.2) !important;
+  border-color: rgba(0, 119, 255, 0.5) !important;
+  color: #f1f5f9 !important;
+}
+
+.btn-mode-active {
+  background: rgba(0, 255, 208, 0.2) !important;
+  border-color: #00ffd0 !important;
+  color: #00ffd0 !important;
+}
+
+/* Custom Scrollbars for Activity Feed */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 208, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 208, 0.4);
+}
+
+/* Custom Fan blade rotation animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+body {
+  background-color: #07111f;
+  background-image: radial-gradient(circle at 10% 20%, #14233a 0%, #07111f 90%);
+  min-height: 100vh;
+  color: #f8fafc;
+  font-family: var(--font-sans);
+}
+
