@@ -19,7 +19,7 @@ import {
   createLog,
   calculateComfortScore,
 } from './mockData';
-import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget } from './lib/firebase';
+import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget, pruneOldTelemetry } from './lib/firebase';
 
 // Component imports
 import Header from './components/Header';
@@ -71,6 +71,22 @@ export default function App() {
   useEffect(() => {
     setFirestoreDatabaseTarget(settings.firestoreDatabaseTarget || 'default');
   }, [settings.firestoreDatabaseTarget]);
+
+  // Automatically prune old database entries on startup to stay within free tier limits
+  useEffect(() => {
+    if (settings.firestoreSyncEnabled) {
+      pruneOldTelemetry(100)
+        .then((prunedCount) => {
+          if (prunedCount > 0) {
+            console.log(`[Firebase] Auto-pruned ${prunedCount} old telemetry entries on startup.`);
+            addLog(`Database optimized: cleared ${prunedCount} older telemetry entries`, 'info');
+          }
+        })
+        .catch((err) => {
+          console.warn('[Firebase] Startup database pruning omitted:', err);
+        });
+    }
+  }, [settings.firestoreSyncEnabled]);
 
   // Save settings on change
   useEffect(() => {

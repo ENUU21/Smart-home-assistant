@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Sliders, Cpu, Save, RefreshCw, Volume2, ShieldAlert, BookOpen, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { Sliders, Cpu, Save, RefreshCw, Volume2, ShieldAlert, BookOpen, AlertTriangle, Trash2, Database } from 'lucide-react';
 import { DashboardSettings } from '../types';
 import GlowCard from './GlowCard';
+import { pruneOldTelemetry } from '../lib/firebase';
 
 interface SettingsPanelProps {
   settings: DashboardSettings;
@@ -14,6 +16,33 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ settings, onSaveSettings, onClose }: SettingsPanelProps) {
+  const [pruning, setPruning] = useState(false);
+  const [pruneStatus, setPruneStatus] = useState<string | null>(null);
+
+  const handlePrune = async () => {
+    setPruning(true);
+    setPruneStatus('Optimizing Database...');
+    try {
+      const removedCount = await pruneOldTelemetry(100);
+      if (removedCount > 0) {
+        setPruneStatus(`Done! Cleared ${removedCount} logs`);
+      } else {
+        setPruneStatus('Database is already clean');
+      }
+      setTimeout(() => {
+        setPruneStatus(null);
+        setPruning(false);
+      }, 3000);
+    } catch (err) {
+      setPruneStatus('Maintenance Failed');
+      console.error(err);
+      setTimeout(() => {
+        setPruneStatus(null);
+        setPruning(false);
+      }, 3500);
+    }
+  };
+
   const handleInputChange = (key: keyof DashboardSettings, value: any) => {
     onSaveSettings({
       ...settings,
@@ -214,6 +243,26 @@ export default function SettingsPanel({ settings, onSaveSettings, onClose }: Set
             </select>
             <p className="text-[9px] text-slate-500 font-mono leading-relaxed mt-1">
               <strong>SPARK PLAN LIMITATION:</strong> Firebase free accounts only support the <code>(default)</code> database. Custom named databases require a Blaze plan upgrade. If you see only the "(default)" database in your Firebase console, choose "(default)" to sync telemetry data.
+            </p>
+          </div>
+
+          {/* Firestore Database Maintenance */}
+          <div className="border-t border-slate-900/40 pt-4 flex flex-col gap-2">
+            <label className="text-[10px] text-slate-500 font-mono block uppercase tracking-wider">
+              Database Maintenance
+            </label>
+            <button
+              id="btn-prune-telemetry"
+              type="button"
+              disabled={pruning || !settings.firestoreSyncEnabled}
+              onClick={handlePrune}
+              className="w-full bg-slate-950/80 hover:bg-slate-900 hover:text-emerald-400 text-slate-300 border border-slate-900 rounded-xl px-3 py-2.5 font-mono text-xs focus:outline-none focus:border-emerald-500 transition-all disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer select-none active:scale-[0.98]"
+            >
+              <Trash2 className={`w-4 h-4 ${pruning ? 'animate-spin text-emerald-400' : ''}`} />
+              {pruneStatus || 'Prune Old Logs (Keep Latest 100)'}
+            </button>
+            <p className="text-[9px] text-slate-500 font-mono leading-relaxed mt-1">
+              <strong>OPTIMIZATION SERVICE:</strong> Keeps your database compact and prevents storage limits by removing all telemetry documents except the 100 most recent records.
             </p>
           </div>
         </div>

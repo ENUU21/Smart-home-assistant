@@ -10,7 +10,9 @@ import {
   limit,
   getDocs,
   onSnapshot,
-  DocumentData
+  DocumentData,
+  deleteDoc,
+  doc
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { ESP32Data, HistoryDataPoint } from '../types';
@@ -265,6 +267,33 @@ export function subscribeToLatestTelemetry(onUpdate: (data: ESP32Data & { id: st
       unsubscribe();
     }
   };
+}
+
+/**
+ * Prunes old telemetry documents to keep only the most recent N documents.
+ * This runs to keep the database compact, responsive, and within free quotas.
+ */
+export async function pruneOldTelemetry(keepCount: number = 100): Promise<number> {
+  const path = 'telemetry';
+  return runWithFallback(async (dbInstance) => {
+    const telemetryCollection = collection(dbInstance, path);
+    // Fetch all documents ordered by timestamp descending
+    const q = query(telemetryCollection, orderBy('timestamp', 'desc'));
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.size > keepCount) {
+      const docsToDelete = querySnapshot.docs.slice(keepCount);
+      console.log(`[Firebase] Pruning ${docsToDelete.length} old telemetry records to keep max of ${keepCount}...`);
+      
+      const deletePromises = docsToDelete.map((docSnap) => 
+        deleteDoc(doc(dbInstance, path, docSnap.id))
+      );
+      
+      await Promise.all(deletePromises);
+      return docsToDelete.length;
+    }
+    return 0;
+  }, OperationType.DELETE, path);
 }
 
 export { currentDb as db };
