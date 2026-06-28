@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Wifi, WifiOff, Cpu, PlayCircle, Settings, BookOpen } from 'lucide-react';
+import { Wifi, WifiOff, Cpu, PlayCircle, Settings, BookOpen, Database } from 'lucide-react';
 import { DashboardSettings } from '../types';
+import { getActiveDatabaseId } from '../lib/firebase';
 
 interface HeaderProps {
   isConnected: boolean;
@@ -98,6 +99,18 @@ export default function Header({
                 </span>
               </>
             )}
+          </div>
+        )}
+
+        {/* Firestore Status indicator */}
+        {settings.firestoreSyncEnabled && (
+          <div
+            id="firestore-status-badge"
+            title={`Connected to Firestore Database: ${getActiveDatabaseId()}`}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-emerald-500/20 bg-emerald-950/20 text-emerald-400 font-mono text-xs font-semibold tracking-wider shadow-[0_0_10px_rgba(16,185,129,0.1)] transition-all duration-300 cursor-help"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400">FIRESTORE CONNECTED</span>
           </div>
         )}
 

@@ -149,6 +149,72 @@ export default function SettingsPanel({ settings, onSaveSettings, onClose }: Set
                 </span>
               </div>
             </label>
+
+            {/* Firestore Cloud Sync Toggle */}
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                id="checkbox-firestore-sync"
+                type="checkbox"
+                checked={settings.firestoreSyncEnabled}
+                onChange={(e) => handleInputChange('firestoreSyncEnabled', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="relative w-10 h-5.5 bg-slate-900 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 peer-checked:after:bg-emerald-300" />
+              <div>
+                <span className="text-xs font-bold text-slate-300 font-sans group-hover:text-slate-100 transition-colors">
+                  Firestore Cloud Sync
+                </span>
+                <span className="text-[8px] text-slate-500 font-mono block leading-none mt-0.5">
+                  Bidirectional data linkage
+                </span>
+              </div>
+            </label>
+
+            {/* Firestore Periodic Autosave Toggle */}
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                id="checkbox-firestore-autosave"
+                type="checkbox"
+                checked={settings.firestoreAutoSaveTicks}
+                onChange={(e) => handleInputChange('firestoreAutoSaveTicks', e.target.checked)}
+                className="sr-only peer"
+                disabled={!settings.firestoreSyncEnabled}
+              />
+              <div className="relative w-10 h-5.5 bg-slate-900 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 peer-checked:after:bg-emerald-300 peer-disabled:opacity-40" />
+              <div className={!settings.firestoreSyncEnabled ? 'opacity-40' : ''}>
+                <span className="text-xs font-bold text-slate-300 font-sans group-hover:text-slate-100 transition-colors">
+                  Periodic Save (10s)
+                </span>
+                <span className="text-[8px] text-slate-500 font-mono block leading-none mt-0.5">
+                  Autosave device logs
+                </span>
+              </div>
+            </label>
+          </div>
+
+          {/* Firestore Database Target Selector */}
+          <div className="border-t border-slate-900/40 pt-4 flex flex-col gap-2">
+            <div className="flex justify-between items-baseline">
+              <label className="text-[10px] text-slate-500 font-mono block uppercase tracking-wider">
+                Target Firestore Database Selection
+              </label>
+              <span className="text-[10px] text-emerald-400 font-bold font-mono">
+                {settings.firestoreDatabaseTarget === 'custom' ? 'Custom DB' : '(default) DB'}
+              </span>
+            </div>
+            <select
+              id="select-firestore-db-target"
+              value={settings.firestoreDatabaseTarget || 'default'}
+              onChange={(e) => handleInputChange('firestoreDatabaseTarget', e.target.value)}
+              disabled={!settings.firestoreSyncEnabled}
+              className="w-full bg-slate-950 text-slate-100 border border-slate-900 rounded-xl px-3 py-2 font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              <option value="default">(default) - Standard Spark Free Plan (Recommended)</option>
+              <option value="custom">Custom Named DB - Blaze Paid Plan</option>
+            </select>
+            <p className="text-[9px] text-slate-500 font-mono leading-relaxed mt-1">
+              <strong>SPARK PLAN LIMITATION:</strong> Firebase free accounts only support the <code>(default)</code> database. Custom named databases require a Blaze plan upgrade. If you see only the "(default)" database in your Firebase console, choose "(default)" to sync telemetry data.
+            </p>
           </div>
         </div>
       </GlowCard>

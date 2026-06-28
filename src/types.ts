@@ -45,4 +45,7 @@ export interface DashboardSettings {
   notificationsEnabled: boolean;
   lowLightMode: boolean;
   themeColor: 'cyan' | 'blue' | 'amber' | 'emerald';
+  firestoreSyncEnabled: boolean;
+  firestoreAutoSaveTicks: boolean;
+  firestoreDatabaseTarget?: 'default' | 'custom';
 }

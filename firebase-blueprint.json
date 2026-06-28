@@ -1,0 +1,25 @@
+{
+  "entities": {
+    "Telemetry": {
+      "title": "Telemetry",
+      "description": "Smart home telemetry data point",
+      "type": "object",
+      "properties": {
+        "auto": { "type": "boolean", "description": "Auto mode status" },
+        "fan": { "type": "integer", "description": "Fan speed value" },
+        "led": { "type": "integer", "description": "LED brightness value" },
+        "motion": { "type": "boolean", "description": "Motion detected flag" },
+        "temperature": { "type": "number", "description": "Temperature in celsius" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Server timestamp of telemetry log" },
+        "voice": { "type": "boolean", "description": "Voice command active status" }
+      },
+      "required": ["auto", "fan", "led", "motion", "temperature"]
+    }
+  },
+  "firestore": {
+    "/telemetry/{telemetryId}": {
+      "schema": "Telemetry",
+      "description": "Collection of smart home state logs"
+    }
+  }
+}

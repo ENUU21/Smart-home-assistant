@@ -19,6 +19,7 @@ import {
   createLog,
   calculateComfortScore,
 } from './mockData';
+import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget } from './lib/firebase';
 
 // Component imports
 import Header from './components/Header';
@@ -41,7 +42,13 @@ export default function App() {
     const saved = localStorage.getItem('kitten_settings');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          firestoreSyncEnabled: true,
+          firestoreAutoSaveTicks: true,
+          firestoreDatabaseTarget: 'default',
+          ...parsed,
+        };
       } catch (e) {
         // use default
       }
@@ -54,8 +61,16 @@ export default function App() {
       notificationsEnabled: true,
       lowLightMode: false,
       themeColor: 'cyan',
+      firestoreSyncEnabled: true,
+      firestoreAutoSaveTicks: true,
+      firestoreDatabaseTarget: 'default',
     };
   });
+
+  // Sync the selected Firestore database target to the Firebase driver
+  useEffect(() => {
+    setFirestoreDatabaseTarget(settings.firestoreDatabaseTarget || 'default');
+  }, [settings.firestoreDatabaseTarget]);
 
   // Save settings on change
   useEffect(() => {
@@ -102,12 +117,99 @@ export default function App() {
     }
   };
 
+  // 2b. Firestore Live Sync & Initialization
+  useEffect(() => {
+    if (!settings.firestoreSyncEnabled) return;
+
+    let isCancelled = false;
+    let lastSeenId = '';
+
+    // Load initial recent telemetry points from Firestore
+    const initFirestoreData = async () => {
+      try {
+        addLog('[Cloud] Syncing historical logs & latest device registry...', 'info');
+        const recentPoints = await getRecentTelemetry(15);
+        if (isCancelled) return;
+
+        if (recentPoints.length > 0) {
+          setHistoryData(recentPoints);
+          
+          // Get the very latest point from our history (which was returned in chronological order)
+          const latestPoint = recentPoints[recentPoints.length - 1];
+          setEspData((prev) => ({
+            ...prev,
+            temperature: latestPoint.temperature,
+            motion: latestPoint.motion === 1,
+            led: latestPoint.led,
+            fan: latestPoint.fan,
+          }));
+          addLog(`[Cloud] Successfully loaded ${recentPoints.length} state log data points into chart.`, 'success');
+        } else {
+          addLog('[Cloud] Telemetry collection is empty. Ready for new snapshots.', 'info');
+        }
+      } catch (err) {
+        addLog(`[Cloud] Failed to fetch initial data: ${(err as Error).message}`, 'warning');
+      }
+    };
+
+    initFirestoreData();
+
+    // Subscribe to real-time telemetry changes in Firestore
+    const unsubscribe = subscribeToLatestTelemetry((latestData) => {
+      if (isCancelled) return;
+
+      // Skip if this is the exact same document ID we just saw or wrote
+      if (latestData.id === lastSeenId) return;
+      lastSeenId = latestData.id;
+
+      // Skip if local state matches the incoming Firestore values to prevent feedback echo
+      const cur = espDataRef.current;
+      if (
+        cur.temperature === latestData.temperature &&
+        cur.motion === latestData.motion &&
+        cur.led === latestData.led &&
+        cur.fan === latestData.fan &&
+        cur.auto === latestData.auto &&
+        cur.voice === latestData.voice
+      ) {
+        return;
+      }
+
+      setEspData({
+        temperature: latestData.temperature,
+        motion: latestData.motion,
+        led: latestData.led,
+        fan: latestData.fan,
+        auto: latestData.auto,
+        voice: latestData.voice,
+      });
+
+      addLog(`[Cloud] Live Feed Sync: Received database snapshot (Doc ID: ${latestData.id.slice(0, 6)}...)`, 'info');
+    });
+
+    return () => {
+      isCancelled = true;
+      unsubscribe();
+    };
+  }, [settings.firestoreSyncEnabled]);
+
   // 3. Command API dispatcher (GET endpoints to physical ESP32 or simulation state updates)
   const sendCommand = async (endpoint: string, stateUpdate: Partial<ESP32Data>, logMessage: string) => {
     setIsFetching(true);
     
     // Immediately apply to UI for instantaneous response feel
     setEspData((prev) => ({ ...prev, ...stateUpdate }));
+
+    // Sync to Firestore if enabled
+    if (settings.firestoreSyncEnabled) {
+      saveTelemetry({ ...espDataRef.current, ...stateUpdate })
+        .then((docId) => {
+          console.log(`[Firestore] Saved telemetry document: ${docId}`);
+        })
+        .catch((err) => {
+          console.error('[Firestore] Failed to save telemetry document:', err);
+        });
+    }
 
     if (settings.simulationMode) {
       // Local simulation execution
@@ -299,6 +401,17 @@ export default function App() {
             setLatency(null);
           }
         }
+      }
+
+      // Throttled periodic Firestore telemetry log (every 10 seconds of runtime)
+      if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreAutoSaveTicks && Math.round(localSecondsCount) % 10 === 0 && Math.round(localSecondsCount) > 0) {
+        saveTelemetry(espDataRef.current)
+          .then((id) => {
+            console.log(`[Firestore] Saved automatic telemetry snapshot: ${id}`);
+          })
+          .catch((err) => {
+            console.error('[Firestore] Auto-save error:', err);
+          });
       }
     };
 
