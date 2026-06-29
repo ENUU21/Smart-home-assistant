@@ -4,5 +4,8 @@ service cloud.firestore {
     match /telemetry/{telemetryId} {
       allow read, write: if true;
     }
+    match /control/{controlId} {
+      allow read, write: if true;
+    }
   }
 }

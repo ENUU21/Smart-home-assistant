@@ -12,7 +12,8 @@ import {
   onSnapshot,
   DocumentData,
   deleteDoc,
-  doc
+  doc,
+  setDoc
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { ESP32Data, HistoryDataPoint } from '../types';
@@ -157,6 +158,24 @@ export async function saveTelemetry(data: Omit<ESP32Data, 'voice'> & { voice?: b
       timestamp: serverTimestamp(),
     });
     return docRef.id;
+  }, OperationType.WRITE, path);
+}
+
+/**
+ * Saves the latest control state (LED, Fan, Auto, Voice) to a single known document.
+ * This makes it simple for an ESP32 to retrieve controls with a direct read.
+ */
+export async function saveControlState(data: Partial<ESP32Data>) {
+  const path = 'control';
+  return runWithFallback(async (dbInstance) => {
+    const controlDoc = doc(dbInstance, path, 'esp32');
+    await setDoc(controlDoc, {
+      led: Number(data.led ?? 0),
+      fan: Number(data.fan ?? 0),
+      auto: Boolean(data.auto),
+      voice: Boolean(data.voice),
+      lastUpdated: serverTimestamp(),
+    }, { merge: true });
   }, OperationType.WRITE, path);
 }
 

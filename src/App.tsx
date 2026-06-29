@@ -19,7 +19,7 @@ import {
   createLog,
   calculateComfortScore,
 } from './mockData';
-import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget, pruneOldTelemetry } from './lib/firebase';
+import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget, pruneOldTelemetry, saveControlState } from './lib/firebase';
 
 // Component imports
 import Header from './components/Header';
@@ -218,12 +218,21 @@ export default function App() {
 
     // Sync to Firestore if enabled
     if (settings.firestoreSyncEnabled) {
-      saveTelemetry({ ...espDataRef.current, ...stateUpdate })
+      const mergedState = { ...espDataRef.current, ...stateUpdate };
+      saveTelemetry(mergedState)
         .then((docId) => {
           console.log(`[Firestore] Saved telemetry document: ${docId}`);
         })
         .catch((err) => {
           console.error('[Firestore] Failed to save telemetry document:', err);
+        });
+
+      saveControlState(mergedState)
+        .then(() => {
+          console.log('[Firestore] Control state synced successfully to control/esp32');
+        })
+        .catch((err) => {
+          console.error('[Firestore] Failed to sync control state to Firestore:', err);
         });
     }
 
