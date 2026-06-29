@@ -110,14 +110,7 @@ export default function FanControl({ data, onFanChange, isLoading }: FanControlP
             </svg>
           </div>
 
-          {/* Real-time Airflow Gust graphics */}
-          {data.fan > 0 && (
-            <div className="flex gap-1.5 mt-2 text-blue-400/60 font-mono text-[9px] animate-pulse">
-              <span className="animate-[bounce_0.6s_infinite_100ms]">~</span>
-              <span className="animate-[bounce_0.6s_infinite_300ms]">~</span>
-              <span className="animate-[bounce_0.6s_infinite_500ms]">~</span>
-            </div>
-          )}
+          {/* Real-time Airflow Gust graphics removed per request */}
         </div>
 
         {/* Sliders and Info Panel */}
