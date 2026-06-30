@@ -35,6 +35,15 @@ export interface HistoryDataPoint {
   fan: number;
 }
 
+export interface Song {
+  id: string;
+  name: string;
+  desc: string;
+  url: string;
+  path?: string;
+  uploadedAt?: any;
+}
+
 export type PresetMode = 'manual' | 'auto' | 'study' | 'sleep' | 'movie' | 'gaming';
 
 export interface DashboardSettings {

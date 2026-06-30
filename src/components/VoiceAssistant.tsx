@@ -3,11 +3,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
-import { Mic, MicOff, MessageSquare, CornerDownRight, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { 
+  Mic, 
+  MicOff, 
+  MessageSquare, 
+  CornerDownRight, 
+  Sparkles, 
+  Play, 
+  Pause, 
+  Volume2, 
+  VolumeX, 
+  Music, 
+  HelpCircle, 
+  ChevronDown, 
+  ChevronUp,
+  Cpu,
+  Radio
+} from 'lucide-react';
 import { ESP32Data } from '../types';
 import GlowCard from './GlowCard';
-import { mockVoiceCommands, createLog } from '../mockData';
+import { mockVoiceCommands, createLog, getPresetStateUpdates } from '../mockData';
+
+// Public high-quality MP3 tracks for smart speaker simulation
+const SONGS = [
+  { 
+    name: "Synthwave Sunset", 
+    url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", 
+    desc: "Retro-futuristic outrun synth drive" 
+  },
+  { 
+    name: "Cozy Lofi Rain", 
+    url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", 
+    desc: "Gentle relaxing study and sleep breeze" 
+  },
+  { 
+    name: "Cyberpunk Overdrive", 
+    url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3", 
+    desc: "High-octane neon cybernetic tempo" 
+  }
+];
 
 interface VoiceAssistantProps {
   data: ESP32Data;
@@ -26,167 +61,694 @@ export default function VoiceAssistant({
 }: VoiceAssistantProps) {
   const [voiceStatus, setVoiceStatus] = useState<'IDLE' | 'LISTENING' | 'PROCESSING'>('IDLE');
   const [lastCommand, setLastCommand] = useState<string>('System initialized.');
-  const [assistantReply, setAssistantReply] = useState<string>('Awaiting vocal activation prompt.');
+  const [assistantReply, setAssistantReply] = useState<string>('Awaiting vocal activation or real mic recording.');
+  const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(60); // 0-100
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentSong, setCurrentSong] = useState(SONGS[0]);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  // Automatically cycle mock voice states if external physical voice trigger occurs
+  // Microphone recording refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Audio player and visualizer refs
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const [visLevels, setVisLevels] = useState<number[]>(new Array(12).fill(4));
+  const animationFrameRef = useRef<number | null>(null);
+
+  // Synchronize wake-state with external dashboard commands if triggered
   useEffect(() => {
-    if (data.voice) {
-      triggerDemoCycle(mockVoiceCommands[Math.floor(Math.random() * mockVoiceCommands.length)]);
+    if (data.voice && voiceStatus === 'IDLE') {
+      startRecording();
     }
   }, [data.voice]);
 
-  const triggerDemoCycle = (cmdObj: typeof mockVoiceCommands[0]) => {
+  // Clean up recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, []);
+
+  // Web Audio Visualizer polling loop
+  const updateVisualizer = () => {
+    if (analyserRef.current && dataArrayRef.current) {
+      analyserRef.current.getByteFrequencyData(dataArrayRef.current);
+      // Map frequencies to 12 visualizer bars
+      const rawData = Array.from(dataArrayRef.current);
+      const step = Math.floor(rawData.length / 12);
+      const levels = Array.from({ length: 12 }, (_, i) => {
+        const val = Number(rawData[i * step] || 0);
+        // Normalize 0-255 to a nice height in px (e.g., 4 to 32)
+        return Math.max(4, Math.round((val / 255) * 28) + 4);
+      });
+      setVisLevels(levels);
+    } else {
+      // Procedural fallback visualizer so it matches beats even without CORS/WebAudio setup
+      if (isPlaying) {
+        setVisLevels(prev => prev.map(() => Math.floor(Math.random() * 24) + 6));
+      } else {
+        setVisLevels(new Array(12).fill(4));
+      }
+    }
+    animationFrameRef.current = requestAnimationFrame(updateVisualizer);
+  };
+
+  // Init Audio Player & Context
+  const initAudioEngine = () => {
+    if (!audioRef.current) return;
+
+    // Apply initial mute/volume states
+    audioRef.current.muted = isMuted;
+    audioRef.current.volume = volume / 100;
+
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass && !audioCtxRef.current) {
+        const ctx = new AudioContextClass();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64; // Small size for responsive visualizer
+
+        // Create media element source
+        const source = ctx.createMediaElementSource(audioRef.current);
+        source.connect(analyser);
+        analyser.connect(ctx.destination);
+
+        audioCtxRef.current = ctx;
+        analyserRef.current = analyser;
+        dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+        sourceRef.current = source;
+      }
+    } catch (err) {
+      console.warn("Web Audio API not supported or blocked by sandbox:", err instanceof Error ? err.message : String(err));
+    }
+
+    if (!animationFrameRef.current) {
+      updateVisualizer();
+    }
+  };
+
+  // Toggle speaker playback
+  const handleTogglePlay = () => {
+    initAudioEngine();
+    if (!audioRef.current) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+      addLog(createLog(`KITTEN Smart Speaker: Music playback paused.`, 'info'));
+    } else {
+      // Resume AudioContext if suspended
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+      audioRef.current.play()
+        .then(() => {
+          setIsPlaying(true);
+          addLog(createLog(`KITTEN Smart Speaker: Now playing "${currentSong.name}"`, 'success'));
+        })
+        .catch(err => {
+          console.error("Audio playback failed: " + (err instanceof Error ? err.message : String(err)));
+          // Fallback simulation toggle
+          setIsPlaying(true);
+        });
+    }
+  };
+
+  const playSong = (song: typeof SONGS[0]) => {
+    initAudioEngine();
+    setCurrentSong(song);
+    setIsPlaying(true);
+
+    if (audioRef.current) {
+      audioRef.current.src = song.url;
+      audioRef.current.load();
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+      audioRef.current.play()
+        .then(() => {
+          addLog(createLog(`KITTEN Smart Speaker: Spoken command activated "${song.name}"`, 'success'));
+        })
+        .catch(err => {
+          console.warn("Playback error (handling CORS gracefully): " + (err instanceof Error ? err.message : String(err)));
+        });
+    }
+  };
+
+  const stopSong = () => {
+    setIsPlaying(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    addLog(createLog(`KITTEN Smart Speaker: Speaker playback stopped on command.`, 'info'));
+  };
+
+  const handleNextSong = () => {
+    const currentIndex = SONGS.findIndex(s => s.name === currentSong.name);
+    const nextIndex = (currentIndex + 1) % SONGS.length;
+    playSong(SONGS[nextIndex]);
+  };
+
+  const handleVolumeChange = (newVol: number) => {
+    setVolume(newVol);
+    if (audioRef.current) {
+      audioRef.current.volume = newVol / 100;
+    }
+  };
+
+  const handleToggleMute = () => {
+    setIsMuted(!isMuted);
+    if (audioRef.current) {
+      audioRef.current.muted = !isMuted;
+    }
+  };
+
+  // Web Browser Real-Time Audio Recording Logic
+  const startRecording = async () => {
+    if (voiceStatus !== 'IDLE') return;
+    
+    onVoiceTrigger(); // Sync state to parent system
+    chunksRef.current = [];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Select supported audio formats
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeType = 'audio/webm';
+      } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+        mimeType = 'audio/ogg';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        setVoiceStatus('PROCESSING');
+        setAssistantReply('Connecting to Gemini 3.5 Flash server...');
+        
+        const audioBlob = new Blob(chunksRef.current, { type: mimeType });
+        await uploadAudioToGemini(audioBlob);
+
+        // Turn off mic hardware stream
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setVoiceStatus('LISTENING');
+      setLastCommand('Listening to your speech command...');
+      setAssistantReply('Speak now! Click the Mic button again to finish or wait 6 seconds.');
+
+      // Limit recording length to 6s
+      recordingTimerRef.current = setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, 6000);
+
+    } catch (err: any) {
+      console.error("Microphone access failed: " + (err instanceof Error ? err.message : String(err)));
+      setAssistantReply(`Microphone Error: ${err.message}. Please check browser settings and grant mic access.`);
+      setVoiceStatus('IDLE');
+    }
+  };
+
+  const stopRecording = () => {
+    if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const uploadAudioToGemini = async (audioBlob: Blob) => {
+    try {
+      // Read binary blob to Base64 string for transmission
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      reader.onloadend = async () => {
+        const base64Data = (reader.result as string).split(',')[1];
+
+        const response = await fetch('/api/voice-command', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            audio: base64Data,
+            mimeType: audioBlob.type
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned error code: ${response.status}`);
+        }
+
+        const resData = await response.json();
+
+        if (resData.fallback) {
+          setLastCommand(resData.transcript);
+          setAssistantReply(resData.reply);
+          setVoiceStatus('IDLE');
+          return;
+        }
+
+        setLastCommand(`"${resData.transcript}"`);
+        setAssistantReply(resData.reply);
+
+        // Propagate smart home state updates
+        const updates: Partial<ESP32Data> = { voice: false };
+        if (resData.mode) {
+          const modeUpdates = getPresetStateUpdates(resData.mode);
+          const { logMsg, ...stateUpdates } = modeUpdates;
+          Object.assign(updates, stateUpdates);
+        } else {
+          if (resData.led !== undefined) updates.led = resData.led;
+          if (resData.fan !== undefined) updates.fan = resData.fan;
+          if (resData.auto !== undefined) updates.auto = resData.auto;
+        }
+
+        onCommandTriggered(
+          updates,
+          `Gemini Command: "${resData.transcript}". Reply: "${resData.reply}"`
+        );
+
+        // Music player response trigger
+        if (resData.playMusic) {
+          if (resData.playMusic.play) {
+            const requestedName = resData.playMusic.songName || "";
+            const matchedSong = SONGS.find(s => s.name.toLowerCase().includes(requestedName.toLowerCase())) || SONGS[0];
+            playSong(matchedSong);
+          } else if (resData.playMusic.stop) {
+            stopSong();
+          }
+        }
+
+        setVoiceStatus('IDLE');
+      };
+    } catch (err: any) {
+      console.error("Gemini audio upload error: " + (err instanceof Error ? err.message : String(err)));
+      setAssistantReply(`Analysis failed: ${err.message || 'Server timeout'}`);
+      setVoiceStatus('IDLE');
+    }
+  };
+
+  // Simulate local legacy commands (Fallback Preset Buttons)
+  const handlePresetSimulation = (cmdObj: typeof mockVoiceCommands[0]) => {
+    if (voiceStatus !== 'IDLE') return;
+    onVoiceTrigger();
+
     setVoiceStatus('LISTENING');
     setLastCommand('Listening...');
-    setAssistantReply('Recording sound input wave...');
+    setAssistantReply('Recording sound input waves...');
 
-    // 1s -> Processing
     setTimeout(() => {
       setVoiceStatus('PROCESSING');
       setLastCommand(`"${cmdObj.command}"`);
-      setAssistantReply('Parsing verbal syntax...');
+      setAssistantReply('Synthesizing command rules local...');
 
-      // 1.8s -> Execute & Idle
       setTimeout(() => {
         setVoiceStatus('IDLE');
         setAssistantReply(cmdObj.response);
         
-        // Build state updates
         const updates: Partial<ESP32Data> = { voice: false };
-        if (cmdObj.led !== undefined) updates.led = cmdObj.led;
-        if (cmdObj.fan !== undefined) updates.fan = cmdObj.fan;
+        if ((cmdObj as any).mode !== undefined) {
+          const modeUpdates = getPresetStateUpdates((cmdObj as any).mode);
+          const { logMsg, ...stateUpdates } = modeUpdates;
+          Object.assign(updates, stateUpdates);
+        } else {
+          if (cmdObj.led !== undefined) updates.led = cmdObj.led;
+          if (cmdObj.fan !== undefined) updates.fan = cmdObj.fan;
+        }
         
         onCommandTriggered(
           updates,
-          `Voice activated: "${cmdObj.command}". Reply: "${cmdObj.response}"`
+          `Preset simulation: "${cmdObj.command}". Reply: "${cmdObj.response}"`
         );
-      }, 1200);
-    }, 1200);
-  };
 
-  const handleSampleClick = (cmdObj: typeof mockVoiceCommands[0]) => {
-    if (voiceStatus !== 'IDLE') return;
-    onVoiceTrigger(); // trigger standard signal
-    triggerDemoCycle(cmdObj);
+        // Handle preset music trigger
+        if (cmdObj.command.toLowerCase().includes('sleep')) {
+          playSong(SONGS[1]); // Cozy Lofi Rain
+        } else if (cmdObj.command.toLowerCase().includes('gaming')) {
+          playSong(SONGS[2]); // Cyberpunk Overdrive
+        }
+      }, 1000);
+    }, 1000);
   };
 
   return (
-    <GlowCard
-      id="card-voice-assistant"
-      title="Voice Assistant"
-      subtitle="KITTEN NLP COGNITIVE MODULE"
-      glowColor={voiceStatus === 'LISTENING' ? 'cyan' : voiceStatus === 'PROCESSING' ? 'purple' : 'none'}
-    >
-      <div className="flex flex-col gap-5">
-        {/* State Display & Audio Waveform */}
-        <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-900 bg-slate-950/40">
-          <div className="flex items-center gap-3">
-            <div
-              className={`p-2.5 rounded-xl transition-all duration-300 ${
-                voiceStatus === 'LISTENING'
-                  ? 'bg-cyan-500/10 text-cyan-400 animate-pulse'
-                  : voiceStatus === 'PROCESSING'
-                    ? 'bg-purple-500/10 text-purple-400 animate-spin'
-                    : 'bg-slate-900 text-slate-500'
-              }`}
-            >
-              {voiceStatus === 'IDLE' ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
+    <div className="flex flex-col gap-6">
+      <GlowCard
+        id="card-voice-assistant"
+        title="Voice Assistant"
+        subtitle="KITTEN NLP COGNITIVE MODULE"
+        glowColor={voiceStatus === 'LISTENING' ? 'cyan' : voiceStatus === 'PROCESSING' ? 'purple' : 'none'}
+      >
+        <div className="flex flex-col gap-5">
+          {/* State Display, Mic Control, & Waveform */}
+          <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-900 bg-slate-950/40">
+            <div className="flex items-center gap-3">
+              <button
+                id="btn-voice-mic-trigger"
+                onClick={voiceStatus === 'LISTENING' ? stopRecording : startRecording}
+                disabled={voiceStatus === 'PROCESSING' || isLoading}
+                className={`p-3 rounded-xl transition-all duration-300 cursor-pointer ${
+                  voiceStatus === 'LISTENING'
+                    ? 'bg-rose-500/20 text-rose-400 animate-pulse border border-rose-500/30'
+                    : voiceStatus === 'PROCESSING'
+                      ? 'bg-purple-500/10 text-purple-400 animate-spin border border-purple-500/20'
+                      : 'bg-slate-900 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 border border-slate-800'
+                }`}
+                title={voiceStatus === 'LISTENING' ? 'Click to stop recording' : 'Click to speak to Gemini'}
+              >
+                {voiceStatus === 'LISTENING' ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+              </button>
+
+              <div>
+                <span className="text-[9px] text-slate-500 font-mono tracking-wider block leading-none">
+                  ASSISTANT STATE
+                </span>
+                <span
+                  className={`text-xs font-bold font-mono tracking-widest ${
+                    voiceStatus === 'LISTENING'
+                      ? 'text-cyan-400 animate-pulse'
+                      : voiceStatus === 'PROCESSING'
+                        ? 'text-purple-400'
+                        : 'text-slate-400'
+                  }`}
+                >
+                  {voiceStatus === 'LISTENING' ? 'RECORDING MIC...' : voiceStatus}
+                </span>
+              </div>
+            </div>
+
+            {/* Hologram style sound waves */}
+            <div className="flex gap-1 items-end h-8">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((barIndex) => {
+                let animationClass = '';
+                if (voiceStatus === 'LISTENING') {
+                  animationClass = 'animate-[pulse_0.4s_infinite_alternate]';
+                } else if (voiceStatus === 'PROCESSING') {
+                  animationClass = 'animate-[pulse_0.15s_infinite_alternate]';
+                }
+                const delay = `${barIndex * 80}ms`;
+
+                return (
+                  <div
+                    key={barIndex}
+                    className={`w-1 rounded-full transition-all duration-300 ${
+                      voiceStatus === 'LISTENING'
+                        ? 'bg-cyan-400'
+                        : voiceStatus === 'PROCESSING'
+                          ? 'bg-purple-400'
+                          : 'bg-slate-800'
+                    } ${animationClass}`}
+                    style={{
+                      height: voiceStatus === 'IDLE' ? '4px' : `${Math.floor(Math.random() * 24) + 6}px`,
+                      animationDelay: delay,
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* NLP Command Terminal Output */}
+          <div className="p-4 rounded-xl border border-slate-900 bg-slate-950/80 font-mono text-xs flex flex-col gap-2.5">
+            <div>
+              <div className="flex items-center gap-1.5 text-slate-500 text-[10px]">
+                <CornerDownRight className="w-3 h-3 text-cyan-400" />
+                <span>LAST COGNITIVE INPUT RECEIVED:</span>
+              </div>
+              <div className="text-slate-200 pl-4.5 font-sans font-medium mt-1">
+                {lastCommand}
+              </div>
+            </div>
+
+            <div className="border-t border-slate-900/60 pt-2.5">
+              <div className="flex items-center gap-1.5 text-slate-500 text-[10px]">
+                <MessageSquare className="w-3 h-3 text-cyan-400" />
+                <span>VIRTUAL RESPONSE OUT:</span>
+              </div>
+              <div className="text-cyan-400/90 pl-4.5 text-[11px] leading-relaxed mt-1 italic">
+                {assistantReply}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Voice Simulation Buttons */}
+          <div>
+            <span className="text-[10px] text-slate-500 font-mono tracking-wider block mb-2 uppercase flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-amber-400" /> Click to Simulate Command
+            </span>
+
+            <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+              {mockVoiceCommands.map((cmdObj, idx) => (
+                <button
+                  key={idx}
+                  id={`btn-voice-preset-${idx}`}
+                  onClick={() => handlePresetSimulation(cmdObj)}
+                  disabled={voiceStatus !== 'IDLE' || isLoading}
+                  className="text-[10px] font-mono px-2 py-1 rounded-lg border border-slate-900 bg-slate-950/50 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-950/10 hover:text-cyan-300 transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none text-left cursor-pointer"
+                >
+                  "{cmdObj.command}"
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </GlowCard>
+
+      {/* Futuristic KITTEN Smart Speaker Card */}
+      <GlowCard
+        id="card-smart-speaker"
+        title="KITTEN Speaker"
+        subtitle="I2S AMBIENT AUDIO SUBSYSTEM"
+        glowColor={isPlaying ? 'emerald' : 'none'}
+      >
+        {/* Hidden Audio Player for actual playback */}
+        <audio
+          ref={audioRef}
+          src={currentSong.url}
+          crossOrigin="anonymous"
+          onEnded={handleNextSong}
+          onError={(e) => {
+            console.warn("Smart Speaker local audio load failure: Audio playback error event.");
+            addLog(createLog("Smart Speaker Preview: Local browser playback failed to load audio from remote source. However, the ESP32 streaming URL remains synchronized and is broadcastable!", "info"));
+          }}
+          className="hidden"
+        />
+
+        <div className="flex flex-col gap-4">
+          {/* Playback Track Telemetry */}
+          <div className="flex items-center gap-4 p-3.5 rounded-xl border border-slate-900 bg-slate-950/40">
+            <div className={`p-3 rounded-xl ${isPlaying ? 'bg-emerald-500/10 text-emerald-400 animate-pulse' : 'bg-slate-900 text-slate-500'} transition-all`}>
+              <Music className="w-5 h-5" />
+            </div>
+
+            <div className="flex-grow min-w-0">
+              <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest block leading-none mb-1">
+                {isPlaying ? 'NOW BROADCASTING' : 'SPEAKER STANDBY'}
+              </span>
+              <h3 className="text-sm font-bold text-slate-200 truncate leading-none mb-1">
+                {currentSong.name}
+              </h3>
+              <p className="text-[10px] text-slate-400 truncate font-mono">
+                {currentSong.desc}
+              </p>
+            </div>
+
+            {/* EQ Frequency Animation */}
+            <div className="flex items-end gap-[2px] h-7 px-1">
+              {visLevels.map((height, idx) => (
+                <div
+                  key={idx}
+                  className={`w-[3px] rounded-full transition-all duration-100 ${isPlaying ? 'bg-emerald-400' : 'bg-slate-800'}`}
+                  style={{ height: `${height}px` }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Playback controls */}
+          <div className="flex items-center justify-between gap-4 font-mono">
+            <div className="flex items-center gap-2">
+              <button
+                id="btn-speaker-play-toggle"
+                onClick={handleTogglePlay}
+                className={`p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  isPlaying 
+                    ? 'border-emerald-500/20 bg-emerald-950/10 text-emerald-400' 
+                    : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:text-white'
+                }`}
+                title={isPlaying ? "Pause Music" : "Play Music"}
+              >
+                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </button>
+
+              <button
+                id="btn-speaker-next"
+                onClick={handleNextSong}
+                className="p-2.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:text-white cursor-pointer"
+                title="Skip Track"
+              >
+                <Radio className="w-4 h-4" />
+              </button>
+
+              <button
+                id="btn-speaker-mute"
+                onClick={handleToggleMute}
+                className="p-2.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:text-white cursor-pointer"
+                title={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Vol Slider */}
+            <div className="flex items-center gap-2 flex-grow max-w-[120px]">
+              <span className="text-[10px] text-slate-500">VOL</span>
+              <input
+                id="slider-speaker-volume"
+                type="range"
+                min="0"
+                max="100"
+                value={volume}
+                onChange={(e) => handleVolumeChange(parseInt(e.target.value))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
+              />
+              <span className="text-[10px] text-slate-400 min-w-[20px] text-right">{volume}</span>
+            </div>
+          </div>
+        </div>
+      </GlowCard>
+
+      {/* Collapsible ESP32 Hardware Integration Guide */}
+      <GlowCard
+        id="card-esp32-integration-guide"
+        title="ESP32 Guide"
+        subtitle="HARDWARE CONNECTIVITY DEPLOYMENT"
+        glowColor="none"
+      >
+        <button
+          id="btn-toggle-hardware-guide"
+          onClick={() => setIsGuideOpen(!isGuideOpen)}
+          className="w-full flex items-center justify-between text-left cursor-pointer text-xs font-mono text-cyan-400 hover:text-cyan-300 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-cyan-400" />
+            <span>ESP32 HARDWARE PINOUTS & CODE</span>
+          </div>
+          {isGuideOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+
+        {isGuideOpen && (
+          <div className="mt-4 border-t border-slate-900 pt-4 flex flex-col gap-4 font-mono text-[11px] text-slate-300 leading-relaxed max-h-[400px] overflow-y-auto pr-2">
+            <div>
+              <h4 className="text-cyan-400 font-bold uppercase mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                1. Required Audio Hardware
+              </h4>
+              <p className="pl-3 text-slate-400">
+                To enable vocal voice assistance and audio streaming directly on your physical microcontroller:
+              </p>
+              <ul className="list-disc pl-7 mt-1 text-slate-400 flex flex-col gap-1">
+                <li><strong>I2S Microphone (e.g., INMP441)</strong>: Feeds high-fidelity digitized audio into the ESP32.</li>
+                <li><strong>I2S Audio DAC (e.g., MAX98357A)</strong>: Amplifies signals to direct-drive a 4Ω speaker.</li>
+              </ul>
             </div>
 
             <div>
-              <span className="text-[9px] text-slate-500 font-mono tracking-wider block leading-none">
-                ASSISTANT STATE
-              </span>
-              <span
-                className={`text-sm font-bold font-mono tracking-widest ${
-                  voiceStatus === 'LISTENING'
-                    ? 'text-cyan-400'
-                    : voiceStatus === 'PROCESSING'
-                      ? 'text-purple-400'
-                      : 'text-slate-400'
-                }`}
-              >
-                {voiceStatus}
-              </span>
+              <h4 className="text-cyan-400 font-bold uppercase mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                2. Pin Connections (ESP32)
+              </h4>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-900 text-[10px]">
+                <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mb-1">INMP441 Mic Pinout:</p>
+                <ul className="flex flex-col gap-0.5">
+                  <li>• VDD ➔ 3.3V</li>
+                  <li>• GND ➔ GND</li>
+                  <li>• L/R ➔ GND (Left Channel)</li>
+                  <li>• SCK ➔ GPIO 14</li>
+                  <li>• SD  ➔ GPIO 32</li>
+                  <li>• WS  ➔ GPIO 15</li>
+                </ul>
+                <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mt-2.5 mb-1">MAX98357A DAC Speaker Pinout:</p>
+                <ul className="flex flex-col gap-0.5">
+                  <li>• Vin ➔ 5V (or 3.3V)</li>
+                  <li>• GND ➔ GND</li>
+                  <li>• LRC ➔ GPIO 25</li>
+                  <li>• BCLK ➔ GPIO 26</li>
+                  <li>• DIN ➔ GPIO 22</li>
+                </ul>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-cyan-400 font-bold uppercase mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                3. ESP32 Arduino Code Snippet
+              </h4>
+              <p className="pl-3 text-slate-400 mb-2">
+                Use the standard HTTPClient library to POST captured Base64 WebM/WAV audio data directly to KITTEN's server:
+              </p>
+              <pre className="bg-slate-950 p-3 rounded-lg border border-slate-900 text-[10px] text-emerald-400 overflow-x-auto leading-tight">
+{`#include <WiFi.h>
+#include <HTTPClient.h>
+
+// Endpoint URL from Settings Panel
+const char* serverUrl = "https://your-app-domain.com/api/voice-command";
+
+void sendVoiceCommand(uint8_t* wavBuffer, size_t size) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    // Convert binary sound buffer to base64
+    String base64Audio = base64::encode(wavBuffer, size);
+
+    // Build JSON packet
+    String jsonPayload = "{\\"audio\\":\\"" + base64Audio + "\\",\\"mimeType\\":\\"audio/wav\\"}";
+
+    int httpResponseCode = http.POST(jsonPayload);
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(response);
+      // Parse response to adjust LED level & Fan speed!
+    } else {
+      Serial.print("HTTP error: ");
+      Serial.println(httpResponseCode);
+    }
+    http.end();
+  }
+}`}
+              </pre>
             </div>
           </div>
-
-          {/* Hologram style sound waves */}
-          <div className="flex gap-1 items-end h-8">
-            {[1, 2, 3, 4, 5, 6, 7].map((barIndex) => {
-              // Dynamic bar heights depending on voice state
-              let animationClass = '';
-              if (voiceStatus === 'LISTENING') {
-                animationClass = 'animate-[pulse_0.4s_infinite_alternate]';
-              } else if (voiceStatus === 'PROCESSING') {
-                animationClass = 'animate-[pulse_0.15s_infinite_alternate]';
-              }
-              const delay = `${barIndex * 100}ms`;
-
-              return (
-                <div
-                  key={barIndex}
-                  className={`w-1 rounded-full transition-all duration-300 ${
-                    voiceStatus === 'LISTENING'
-                      ? 'bg-cyan-400'
-                      : voiceStatus === 'PROCESSING'
-                        ? 'bg-purple-400'
-                        : 'bg-slate-800'
-                  } ${animationClass}`}
-                  style={{
-                    height: voiceStatus === 'IDLE' ? '4px' : `${Math.floor(Math.random() * 20) + 8}px`,
-                    animationDelay: delay,
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        {/* NLP Command Terminal Output */}
-        <div className="p-4 rounded-xl border border-slate-900 bg-slate-950/80 font-mono text-xs flex flex-col gap-2.5">
-          <div>
-            <div className="flex items-center gap-1.5 text-slate-500 text-[10px]">
-              <CornerDownRight className="w-3 h-3 text-cyan-400" />
-              <span>LAST VERBAL INPUT RECORDED:</span>
-            </div>
-            <div className="text-slate-200 pl-4.5 font-sans font-medium mt-1">
-              {lastCommand}
-            </div>
-          </div>
-
-          <div className="border-t border-slate-900/60 pt-2.5">
-            <div className="flex items-center gap-1.5 text-slate-500 text-[10px]">
-              <MessageSquare className="w-3 h-3 text-cyan-400" />
-              <span>VIRTUAL AUDIO SYNTH REACTION:</span>
-            </div>
-            <div className="text-cyan-400/90 pl-4.5 text-[11px] leading-relaxed mt-1 italic">
-              "{assistantReply}"
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Voice Simulation Buttons */}
-        <div>
-          <span className="text-[10px] text-slate-500 font-mono tracking-wider block mb-2 uppercase flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-amber-400" /> Click to Simulate Command
-          </span>
-
-          <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
-            {mockVoiceCommands.map((cmdObj, idx) => (
-              <button
-                key={idx}
-                id={`btn-voice-preset-${idx}`}
-                onClick={() => handleSampleClick(cmdObj)}
-                disabled={voiceStatus !== 'IDLE' || isLoading}
-                className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border border-slate-900 bg-slate-950/50 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-950/10 hover:text-cyan-300 transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none text-left"
-              >
-                "{cmdObj.command}"
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </GlowCard>
+        )}
+      </GlowCard>
+    </div>
   );
 }

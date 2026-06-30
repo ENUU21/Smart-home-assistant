@@ -15,8 +15,9 @@ import {
   doc,
   setDoc
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { ESP32Data, HistoryDataPoint } from '../types';
+import { ESP32Data, HistoryDataPoint, Song } from '../types';
 
 // Initialize Firebase App
 const app = initializeApp({
@@ -30,6 +31,9 @@ const app = initializeApp({
 
 // Initialize Auth
 export const auth = getAuth(app);
+
+// Initialize Storage
+export const storage = getStorage(app);
 
 // Initialize Firestore
 // Use the custom database ID if available (ai-studio-kittensmarthomea-...)
@@ -162,21 +166,83 @@ export async function saveTelemetry(data: Omit<ESP32Data, 'voice'> & { voice?: b
 }
 
 /**
- * Saves the latest control state (LED, Fan, Auto, Voice) to a single known document.
+ * Saves the latest control state (LED, Fan, Auto, Voice, Song details) to a single known document.
  * This makes it simple for an ESP32 to retrieve controls with a direct read.
  */
-export async function saveControlState(data: Partial<ESP32Data>) {
+export async function saveControlState(data: Partial<ESP32Data> & { songUrl?: string; songName?: string; isPlaying?: boolean; volume?: number }) {
   const path = 'control';
   return runWithFallback(async (dbInstance) => {
     const controlDoc = doc(dbInstance, path, 'esp32');
-    await setDoc(controlDoc, {
-      led: Number(data.led ?? 0),
-      fan: Number(data.fan ?? 0),
-      auto: Boolean(data.auto),
-      voice: Boolean(data.voice),
+    
+    const payload: Record<string, any> = {
       lastUpdated: serverTimestamp(),
-    }, { merge: true });
+    };
+
+    if (data.led !== undefined) payload.led = Number(data.led);
+    if (data.fan !== undefined) payload.fan = Number(data.fan);
+    if (data.auto !== undefined) payload.auto = Boolean(data.auto);
+    if (data.voice !== undefined) payload.voice = Boolean(data.voice);
+    if (data.songUrl !== undefined) payload.songUrl = String(data.songUrl);
+    if (data.songName !== undefined) payload.songName = String(data.songName);
+    if (data.isPlaying !== undefined) payload.isPlaying = Boolean(data.isPlaying);
+    if (data.volume !== undefined) payload.volume = Number(data.volume);
+
+    await setDoc(controlDoc, payload, { merge: true });
   }, OperationType.WRITE, path);
+}
+
+/**
+ * Saves an uploaded song's metadata to Firestore "songs" collection.
+ */
+export async function saveSongMetadata(song: Omit<Song, 'id'>): Promise<string> {
+  const path = 'songs';
+  return runWithFallback(async (dbInstance) => {
+    const songsCollection = collection(dbInstance, path);
+    const docRef = await addDoc(songsCollection, {
+      name: song.name,
+      desc: song.desc,
+      url: song.url,
+      path: song.path || '',
+      uploadedAt: serverTimestamp(),
+    });
+    return docRef.id;
+  }, OperationType.WRITE, path);
+}
+
+/**
+ * Fetches the list of custom songs uploaded by the user from Firestore "songs" collection.
+ */
+export async function getSongsList(): Promise<Song[]> {
+  const path = 'songs';
+  return runWithFallback(async (dbInstance) => {
+    const songsCollection = collection(dbInstance, path);
+    const q = query(songsCollection, orderBy('uploadedAt', 'desc'));
+    const querySnapshot = await getDocs(q);
+    
+    const songs: Song[] = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      songs.push({
+        id: docSnap.id,
+        name: String(data.name || 'Unnamed Track'),
+        desc: String(data.desc || 'Uploaded Track'),
+        url: String(data.url || ''),
+        path: String(data.path || ''),
+        uploadedAt: data.uploadedAt,
+      });
+    });
+    return songs;
+  }, OperationType.GET, path);
+}
+
+/**
+ * Deletes a song document from Firestore.
+ */
+export async function deleteSongMetadata(id: string): Promise<void> {
+  const path = 'songs';
+  return runWithFallback(async (dbInstance) => {
+    await deleteDoc(doc(dbInstance, path, id));
+  }, OperationType.DELETE, path);
 }
 
 /**

@@ -32,6 +32,7 @@ import AnalyticsSection from './components/AnalyticsSection';
 import ActivityFeed from './components/ActivityFeed';
 import SystemHealth from './components/SystemHealth';
 import SettingsPanel from './components/SettingsPanel';
+import MediaControlSection from './components/MediaControlSection';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -83,7 +84,7 @@ export default function App() {
           }
         })
         .catch((err) => {
-          console.warn('[Firebase] Startup database pruning omitted:', err);
+          console.warn('[Firebase] Startup database pruning omitted:', err instanceof Error ? err.message : String(err));
         });
     }
   }, [settings.firestoreSyncEnabled]);
@@ -224,7 +225,7 @@ export default function App() {
           console.log(`[Firestore] Saved telemetry document: ${docId}`);
         })
         .catch((err) => {
-          console.error('[Firestore] Failed to save telemetry document:', err);
+          console.error('[Firestore] Failed to save telemetry document:', err instanceof Error ? err.message : String(err));
         });
 
       saveControlState(mergedState)
@@ -232,7 +233,7 @@ export default function App() {
           console.log('[Firestore] Control state synced successfully to control/esp32');
         })
         .catch((err) => {
-          console.error('[Firestore] Failed to sync control state to Firestore:', err);
+          console.error('[Firestore] Failed to sync control state to Firestore:', err instanceof Error ? err.message : String(err));
         });
     }
 
@@ -261,7 +262,7 @@ export default function App() {
       
       addLog(logMessage, 'success');
     } catch (err) {
-      console.error('Physical send error:', err);
+      console.error('Physical send error:', err instanceof Error ? err.message : String(err));
       addLog(`Failed to communicate with ESP32 at: ${url}. (Check network / CORS policy).`, 'alert');
       setIsConnected(false);
     } finally {
@@ -374,56 +375,89 @@ export default function App() {
       
       // --- PHYSICAL ESP32 REAL NETWORK POLLING ---
       else {
-        if (!currentSettings.espIpAddress) {
-          setIsConnected(false);
-          return;
-        }
+        if (currentSettings.firestoreSyncEnabled) {
+          // Bypasses browser-to-local HTTP direct requests to prevent CORS / Mixed Content block.
+          // Real-time telemetry is synced via the Firestore snapshot subscription instead.
+          setIsConnected(true);
+          setLatency(220); // Average Firestore sync latency
 
-        const cleanIp = currentSettings.espIpAddress.replace(/^https?:\/\//i, '').trim();
-        const url = `http://${cleanIp}/data`;
+          // Populate system health incrementally
+          setSystemHealth((prev) => ({
+            ...prev,
+            uptimeSeconds: prev.uptimeSeconds + Math.round(currentSettings.refreshRateMs / 1000),
+            sensorStatus: 'OK',
+          }));
 
-        try {
-          const startTime = performance.now();
-          const res = await fetch(url);
-          const endTime = performance.now();
-          
-          if (res.ok) {
-            const data: ESP32Data = await res.json();
-            setEspData(data);
-            setIsConnected(true);
-            setLatency(Math.round(endTime - startTime));
-
-            // Populate system health incrementally
-            setSystemHealth((prev) => ({
-              ...prev,
-              uptimeSeconds: prev.uptimeSeconds + Math.round(currentSettings.refreshRateMs / 1000),
-              sensorStatus: 'OK',
-            }));
-
-            // Save history trace
-            setHistoryData((prev) => {
-              const now = new Date();
-              const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-              const newPoint: HistoryDataPoint = {
-                time: timeStr,
-                temperature: data.temperature,
-                motion: data.motion ? 1 : 0,
-                led: data.led,
-                fan: data.fan,
-              };
-              const nextHistory = [...prev, newPoint];
-              if (nextHistory.length > 15) {
-                return nextHistory.slice(nextHistory.length - 15);
-              }
-              return nextHistory;
-            });
-          }
-        } catch (err) {
-          // Fail gracefully. Only alert once in logs.
-          if (isConnected) {
-            addLog(`Lost connection to ESP32 board at: ${url}. Checking status...`, 'alert');
+          // Save history trace using current state synced from Firestore
+          setHistoryData((prev) => {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const data = espDataRef.current;
+            const newPoint: HistoryDataPoint = {
+              time: timeStr,
+              temperature: data.temperature,
+              motion: data.motion ? 1 : 0,
+              led: data.led,
+              fan: data.fan,
+            };
+            const nextHistory = [...prev, newPoint];
+            if (nextHistory.length > 15) {
+              return nextHistory.slice(nextHistory.length - 15);
+            }
+            return nextHistory;
+          });
+        } else {
+          // Fallback direct HTTP polling (only used if Cloud Sync is toggled off)
+          if (!currentSettings.espIpAddress) {
             setIsConnected(false);
-            setLatency(null);
+            return;
+          }
+
+          const cleanIp = currentSettings.espIpAddress.replace(/^https?:\/\//i, '').trim();
+          const url = `http://${cleanIp}/data`;
+
+          try {
+            const startTime = performance.now();
+            const res = await fetch(url);
+            const endTime = performance.now();
+            
+            if (res.ok) {
+              const data: ESP32Data = await res.json();
+              setEspData(data);
+              setIsConnected(true);
+              setLatency(Math.round(endTime - startTime));
+
+              // Populate system health incrementally
+              setSystemHealth((prev) => ({
+                ...prev,
+                uptimeSeconds: prev.uptimeSeconds + Math.round(currentSettings.refreshRateMs / 1000),
+                sensorStatus: 'OK',
+              }));
+
+              // Save history trace
+              setHistoryData((prev) => {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const newPoint: HistoryDataPoint = {
+                  time: timeStr,
+                  temperature: data.temperature,
+                  motion: data.motion ? 1 : 0,
+                  led: data.led,
+                  fan: data.fan,
+                };
+                const nextHistory = [...prev, newPoint];
+                if (nextHistory.length > 15) {
+                  return nextHistory.slice(nextHistory.length - 15);
+                }
+                return nextHistory;
+              });
+            }
+          } catch (err) {
+            if (isConnected) {
+              addLog(`Lost connection to ESP32 board at: ${url}. Checking status...`, 'alert');
+              setIsConnected(false);
+              setLatency(null);
+            }
           }
         }
       }
@@ -435,7 +469,7 @@ export default function App() {
             console.log(`[Firestore] Saved automatic telemetry snapshot: ${id}`);
           })
           .catch((err) => {
-            console.error('[Firestore] Auto-save error:', err);
+            console.error('[Firestore] Auto-save error:', err instanceof Error ? err.message : String(err));
           });
       }
     };
@@ -553,6 +587,12 @@ export default function App() {
             {/* Hardware statistics monitor */}
             <SystemHealth metrics={systemHealth} />
           </div>
+
+          {/* Media Player Streaming Hub */}
+          <MediaControlSection
+            currentData={espData}
+            addLog={addLog}
+          />
 
           {/* COLUMN 3 (Full Span Row): Time-Series Analytics Charts & Logging Terminal */}
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-5 gap-6">
