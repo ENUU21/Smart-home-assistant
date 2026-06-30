@@ -208,7 +208,7 @@ void publishTelemetry() {
   bool motionVal = digitalRead(MOTION_PIN) == HIGH;
 
   // Display values in the Serial Monitor
-  Serial.printf("Sensor Reading - Raw ADC: %d, Temperature: %.1f C, Motion: %s\n", 
+  Serial.printf("Sensor Reading - Raw ADC: %d, Temperature: %.1f C, Motion: %s\\n", 
                 rawADC, tempVal, motionVal ? "DETECTED" : "CLEAR");
 
   // Build Firestore typed fields structure
