@@ -222,13 +222,6 @@ export default function App() {
     // Sync to Firestore if enabled
     if (settings.firestoreSyncEnabled) {
       const mergedState = { ...espDataRef.current, ...stateUpdate };
-      saveTelemetry(mergedState)
-        .then((docId) => {
-          console.log(`[Firestore] Saved telemetry document: ${docId}`);
-        })
-        .catch((err) => {
-          console.error('[Firestore] Failed to save telemetry document:', err instanceof Error ? err.message : String(err));
-        });
 
       saveControlState(mergedState)
         .then(() => {
@@ -469,16 +462,8 @@ export default function App() {
         }
       }
 
-      // Throttled periodic Firestore telemetry log (every 10 seconds of runtime)
-      if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreAutoSaveTicks && Math.round(localSecondsCount) % 10 === 0 && Math.round(localSecondsCount) > 0) {
-        saveTelemetry(espDataRef.current)
-          .then((id) => {
-            console.log(`[Firestore] Saved automatic telemetry snapshot: ${id}`);
-          })
-          .catch((err) => {
-            console.error('[Firestore] Auto-save error:', err instanceof Error ? err.message : String(err));
-          });
-      }
+      // Removed browser-triggered periodic telemetry snapshot upload.
+      // Telemetry must originate strictly from the physical ESP32 to prevent simulated data pollution.
     };
 
     // Run first immediately, then set interval

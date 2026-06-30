@@ -83,12 +83,8 @@ export default function VoiceAssistant({
   const [visLevels, setVisLevels] = useState<number[]>(new Array(12).fill(4));
   const animationFrameRef = useRef<number | null>(null);
 
-  // Synchronize wake-state with external dashboard commands if triggered
-  useEffect(() => {
-    if (data.voice && voiceStatus === 'IDLE') {
-      startRecording();
-    }
-  }, [data.voice]);
+  // We have disabled automatic browser microphone wake-up to ensure user privacy and prevent unrequested resource use.
+  // The microphone must be manually activated by clicking the microphone button in the UI.
 
   // Clean up recording on unmount
   useEffect(() => {

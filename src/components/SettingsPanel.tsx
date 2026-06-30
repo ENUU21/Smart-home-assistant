@@ -438,26 +438,18 @@ void publishTelemetry() {
               </div>
             </label>
 
-            {/* Firestore Periodic Autosave Toggle */}
-            <label className="flex items-center gap-3 cursor-pointer group">
-              <input
-                id="checkbox-firestore-autosave"
-                type="checkbox"
-                checked={settings.firestoreAutoSaveTicks}
-                onChange={(e) => handleInputChange('firestoreAutoSaveTicks', e.target.checked)}
-                className="sr-only peer"
-                disabled={!settings.firestoreSyncEnabled}
-              />
-              <div className="relative w-10 h-5.5 bg-slate-900 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 peer-checked:after:bg-emerald-300 peer-disabled:opacity-40" />
-              <div className={!settings.firestoreSyncEnabled ? 'opacity-40' : ''}>
-                <span className="text-xs font-bold text-slate-300 font-sans group-hover:text-slate-100 transition-colors">
-                  Periodic Save (10s)
+            {/* Telemetry Upload Mode Indicator */}
+            <div className="flex items-start gap-3 bg-slate-950/40 p-2.5 rounded-lg border border-slate-900/30">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mt-1.5" />
+              <div>
+                <span className="text-xs font-bold text-slate-300 font-sans block leading-none">
+                  Telemetry: ESP32-Only
                 </span>
-                <span className="text-[8px] text-slate-500 font-mono block leading-none mt-0.5">
-                  Autosave device logs
+                <span className="text-[9px] text-slate-500 font-sans block mt-1 leading-normal">
+                  Browser-simulated telemetry is disabled. Any data appearing on the dashboard is strictly transmitted by your physical sensor.
                 </span>
               </div>
-            </label>
+            </div>
           </div>
 
           {/* Firestore Database Target Selector */}
