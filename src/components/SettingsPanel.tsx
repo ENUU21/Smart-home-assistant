@@ -59,15 +59,18 @@ export default function SettingsPanel({ settings, onSaveSettings, onClose }: Set
   };
 
   const esp32Code = `/*
-  Kitten Smart Home - ESP32 Firestore Integration Sketch
-  Requires the "ArduinoJson" library by Benoit Blanchon.
-  Install it via the Arduino Library Manager in Arduino IDE.
+  Kitten Smart Home - ESP32 Firestore Integration Sketch (DHT11 Version)
+  Requires the following libraries in Arduino IDE:
+  1. "ArduinoJson" by Benoit Blanchon (via Library Manager)
+  2. "DHT sensor library" by Adafruit (via Library Manager)
+  3. "Adafruit Unified Sensor" by Adafruit (via Library Manager, required by DHT library)
 */
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <DHT.h>
 
 // WiFi Credentials
 const char* ssid = "ASUS_X00RD";
@@ -80,8 +83,11 @@ const char* databaseId = "${settings.firestoreDatabaseTarget === 'custom' ? (fir
 // Hardware Pins (Adjust to your actual wiring)
 const int LED_PIN = 12;      // PWM Pin for LED Brightness
 const int FAN_PIN = 13;      // PWM Pin for Fan Speed Control
-const int TEMP_PIN = 34;     // Analog sensor pin (e.g., LM35 or thermistor)
+const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
 const int MOTION_PIN = 27;   // PIR Motion sensor pin
+
+#define DHTTYPE DHT11
+DHT dht(DHT_PIN, DHTTYPE);
 
 // Timing Trackers
 unsigned long lastTelemetryTime = 0;
@@ -95,6 +101,9 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(MOTION_PIN, INPUT);
+
+  // Initialize DHT sensor
+  dht.begin();
 
   // Connect to WiFi network
   WiFi.begin(ssid, password);
@@ -202,14 +211,19 @@ void publishTelemetry() {
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
 
-  // Read actual sensors
-  int rawADC = analogRead(TEMP_PIN);
-  float tempVal = (rawADC * 3.3 / 4095.0) * 100.0; // Scaled temperature
+  // Read actual DHT11 sensor
+  float tempVal = dht.readTemperature();
   bool motionVal = digitalRead(MOTION_PIN) == HIGH;
 
+  // Handle sensor reading failures
+  if (isnan(tempVal)) {
+    Serial.println("Warning: Failed to read temperature from DHT11 sensor!");
+    tempVal = 24.5; // Fail-safe default or skip publishing
+  }
+
   // Display values in the Serial Monitor
-  Serial.printf("Sensor Reading - Raw ADC: %d, Temperature: %.1f C, Motion: %s\\n", 
-                rawADC, tempVal, motionVal ? "DETECTED" : "CLEAR");
+  Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\\n", 
+                tempVal, motionVal ? "DETECTED" : "CLEAR");
 
   // Build Firestore typed fields structure
   DynamicJsonDocument doc(1024);
