@@ -83,62 +83,97 @@ Guidelines:
 
 Make sure your reply reflects the actions you are taking.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: [audioPart, prompt],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              transcript: {
-                type: Type.STRING,
-                description: "Accurate text transcription of what was spoken in the audio."
-              },
-              reply: {
-                type: Type.STRING,
-                description: "The AI assistant's verbal response to the command."
-              },
-              mode: {
-                type: Type.STRING,
-                description: "The automation profile mode name: 'manual', 'auto', 'study', 'sleep', 'movie', or 'gaming'."
-              },
-              led: {
-                type: Type.INTEGER,
-                description: "LED brightness level (0-255)."
-              },
-              fan: {
-                type: Type.INTEGER,
-                description: "Fan level (0-255)."
-              },
-              auto: {
-                type: Type.BOOLEAN,
-                description: "Set automatic mode state."
-              },
-              playMusic: {
-                type: Type.OBJECT,
-                description: "Controls to start or stop music on the smart home speaker system.",
-                properties: {
-                  songName: {
-                    type: Type.STRING,
-                    description: "Proposed song or genre name."
+      // Multi-model fallback chain to handle high demand or temporary 503/UNAVAILABLE errors
+      const candidateModels = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+      let response = null;
+      let lastError: any = null;
+
+      for (const modelName of candidateModels) {
+        let success = false;
+        const attempts = 2; // Up to 2 attempts per model with a short backoff
+
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+          try {
+            console.log(`[Gemini API] Attempt ${attempt}/${attempts} parsing voice command with model: ${modelName}`);
+            response = await ai.models.generateContent({
+              model: modelName,
+              contents: [audioPart, prompt],
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    transcript: {
+                      type: Type.STRING,
+                      description: "Accurate text transcription of what was spoken in the audio."
+                    },
+                    reply: {
+                      type: Type.STRING,
+                      description: "The AI assistant's verbal response to the command."
+                    },
+                    mode: {
+                      type: Type.STRING,
+                      description: "The automation profile mode name: 'manual', 'auto', 'study', 'sleep', 'movie', or 'gaming'."
+                    },
+                    led: {
+                      type: Type.INTEGER,
+                      description: "LED brightness level (0-255)."
+                    },
+                    fan: {
+                      type: Type.INTEGER,
+                      description: "Fan level (0-255)."
+                    },
+                    auto: {
+                      type: Type.BOOLEAN,
+                      description: "Set automatic mode state."
+                    },
+                    playMusic: {
+                      type: Type.OBJECT,
+                      description: "Controls to start or stop music on the smart home speaker system.",
+                      properties: {
+                        songName: {
+                          type: Type.STRING,
+                          description: "Proposed song or genre name."
+                        },
+                        play: {
+                          type: Type.BOOLEAN,
+                          description: "Set to true to play/resume music."
+                        },
+                        stop: {
+                          type: Type.BOOLEAN,
+                          description: "Set to true to stop music playback."
+                        }
+                      },
+                      required: []
+                    }
                   },
-                  play: {
-                    type: Type.BOOLEAN,
-                    description: "Set to true to play/resume music."
-                  },
-                  stop: {
-                    type: Type.BOOLEAN,
-                    description: "Set to true to stop music playback."
-                  }
-                },
-                required: []
+                  required: ["transcript", "reply"]
+                }
               }
-            },
-            required: ["transcript", "reply"]
+            });
+
+            if (response) {
+              console.log(`[Gemini API] Successfully parsed voice command using ${modelName} on attempt ${attempt}`);
+              success = true;
+              break;
+            }
+          } catch (err: any) {
+            lastError = err;
+            console.warn(`[Gemini API] Model ${modelName} attempt ${attempt} failed:`, err.message || err);
+            
+            // Wait 250ms before retrying the same model or falling back
+            await new Promise((resolve) => setTimeout(resolve, 250));
           }
         }
-      });
+
+        if (success && response) {
+          break;
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error("All candidate Gemini models failed to respond.");
+      }
 
       const responseText = response.text || "{}";
       const parsedData = JSON.parse(responseText.trim());

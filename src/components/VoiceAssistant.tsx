@@ -19,7 +19,10 @@ import {
   ChevronDown, 
   ChevronUp,
   Cpu,
-  Radio
+  Radio,
+  Zap,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { ESP32Data } from '../types';
 import GlowCard from './GlowCard';
@@ -67,6 +70,16 @@ export default function VoiceAssistant({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSong, setCurrentSong] = useState(SONGS[0]);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+
+  // Spark Plan Credit Quota (Default: 150)
+  const [credits, setCredits] = useState<number>(() => {
+    const saved = localStorage.getItem('kitten_ai_credits');
+    return saved !== null ? parseInt(saved, 10) : 150;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kitten_ai_credits', credits.toString());
+  }, [credits]);
 
   // Microphone recording refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -234,6 +247,12 @@ export default function VoiceAssistant({
   // Web Browser Real-Time Audio Recording Logic
   const startRecording = async () => {
     if (voiceStatus !== 'IDLE') return;
+
+    if (credits < 15) {
+      setAssistantReply('⚠️ Insufficient credits for Live Voice Processing (Requires 15 credits). Please recharge your Spark Plan quota.');
+      addLog(createLog('Credits low: Live voice command aborted. Click "RECHARGE" to restore credits.', 'warning'));
+      return;
+    }
     
     onVoiceTrigger(); // Sync state to parent system
     chunksRef.current = [];
@@ -306,6 +325,9 @@ export default function VoiceAssistant({
       reader.onloadend = async () => {
         const base64Data = (reader.result as string).split(',')[1];
 
+        // Deduct live audio query credits on successful connection
+        setCredits(prev => Math.max(0, prev - 15));
+
         const response = await fetch('/api/voice-command', {
           method: 'POST',
           headers: {
@@ -373,6 +395,16 @@ export default function VoiceAssistant({
   // Simulate local legacy commands (Fallback Preset Buttons)
   const handlePresetSimulation = (cmdObj: typeof mockVoiceCommands[0]) => {
     if (voiceStatus !== 'IDLE') return;
+
+    if (credits < 2) {
+      setAssistantReply('⚠️ Insufficient credits for Preset Simulation (Requires 2 credits). Please recharge your Spark Plan quota.');
+      addLog(createLog('Credits low: Preset simulation aborted. Click "RECHARGE" to restore credits.', 'warning'));
+      return;
+    }
+
+    // Deduct preset simulation credits
+    setCredits(prev => Math.max(0, prev - 2));
+
     onVoiceTrigger();
 
     setVoiceStatus('LISTENING');
@@ -487,6 +519,58 @@ export default function VoiceAssistant({
                   />
                 );
               })}
+            </div>
+          </div>
+
+          {/* AI Processing Credits Counter & Progress Bar */}
+          <div className="p-3.5 rounded-xl border border-slate-900 bg-slate-950/20 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Zap className={`w-3.5 h-3.5 ${credits > 30 ? 'text-amber-400' : 'text-rose-500 animate-pulse'}`} />
+                <span className="text-[10px] text-slate-400 font-mono tracking-wider font-semibold">
+                  SPARK PLAN COGNITIVE QUOTA
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-slate-200">
+                  {credits} <span className="text-slate-500">/ 150</span>
+                </span>
+                <button
+                  id="btn-replenish-credits"
+                  onClick={() => {
+                    setCredits(150);
+                    addLog(createLog("Spark Plan cognitive quota replenished successfully to 150 credits.", "success"));
+                  }}
+                  className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-850 text-cyan-400 hover:text-cyan-300 transition-all text-[9px] font-mono cursor-pointer flex items-center gap-1"
+                  title="Replenish Spark Quota"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" /> RECHARGE
+                </button>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-900/40">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  credits > 75
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                    : credits > 30
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
+                      : 'bg-gradient-to-r from-rose-600 to-rose-400 animate-pulse'
+                }`}
+                style={{ width: `${Math.min(100, (credits / 150) * 100)}%` }}
+              />
+            </div>
+
+            {/* Explanation details */}
+            <div className="flex justify-between items-center text-[8.5px] font-mono text-slate-500 leading-none mt-0.5">
+              <span>Cost: -15/audio request, -2/preset trigger</span>
+              {credits < 15 && (
+                <span className="text-rose-400 animate-pulse flex items-center gap-1 font-bold">
+                  <AlertCircle className="w-2.5 h-2.5" /> LOW CREDITS
+                </span>
+              )}
             </div>
           </div>
 
