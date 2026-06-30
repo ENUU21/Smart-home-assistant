@@ -36,19 +36,21 @@ import MediaControlSection from './components/MediaControlSection';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
+import firebaseConfig from '../firebase-applet-config.json';
 
 export default function App() {
   // 1. Initial configuration load from localStorage (or defaults)
   const [settings, setSettings] = useState<DashboardSettings>(() => {
     const saved = localStorage.getItem('kitten_settings');
+    const defaultDbTarget = 'default';
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         return {
           firestoreSyncEnabled: true,
           firestoreAutoSaveTicks: true,
-          firestoreDatabaseTarget: 'default',
           ...parsed,
+          firestoreDatabaseTarget: 'default', // Force standard (default) database for Spark compatibility
         };
       } catch (e) {
         // use default
@@ -64,7 +66,7 @@ export default function App() {
       themeColor: 'cyan',
       firestoreSyncEnabled: true,
       firestoreAutoSaveTicks: true,
-      firestoreDatabaseTarget: 'default',
+      firestoreDatabaseTarget: defaultDbTarget,
     };
   });
 
@@ -208,7 +210,7 @@ export default function App() {
       isCancelled = true;
       unsubscribe();
     };
-  }, [settings.firestoreSyncEnabled]);
+  }, [settings.firestoreSyncEnabled, settings.firestoreDatabaseTarget]);
 
   // 3. Command API dispatcher (GET endpoints to physical ESP32 or simulation state updates)
   const sendCommand = async (endpoint: string, stateUpdate: Partial<ESP32Data>, logMessage: string) => {

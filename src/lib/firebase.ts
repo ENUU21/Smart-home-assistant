@@ -43,8 +43,8 @@ export const customDb = firebaseConfig.firestoreDatabaseId
 
 export const defaultDb = getFirestore(app);
 
-// Default to the (default) database so that Spark plan users are connected and operational on startup!
-let currentDb = defaultDb;
+// Use the custom database if present, otherwise fallback to the default database
+let currentDb = customDb || defaultDb;
 
 /**
  * Updates the active Firestore database target.

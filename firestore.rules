@@ -7,5 +7,8 @@ service cloud.firestore {
     match /control/{controlId} {
       allow read, write: if true;
     }
+    match /songs/{songId} {
+      allow read, write: if true;
+    }
   }
 }
