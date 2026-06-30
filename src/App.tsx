@@ -235,6 +235,11 @@ export default function App() {
         .catch((err) => {
           console.error('[Firestore] Failed to sync control state to Firestore:', err instanceof Error ? err.message : String(err));
         });
+
+      // If Firestore Cloud Sync is active, the ESP32 pulls these settings, so do not perform direct local IP HTTP fetches.
+      addLog(logMessage, 'success');
+      setIsFetching(false);
+      return;
     }
 
     if (settings.simulationMode) {

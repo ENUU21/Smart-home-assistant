@@ -203,8 +203,13 @@ void publishTelemetry() {
   http.addHeader("Content-Type", "application/json");
 
   // Read actual sensors
-  float tempVal = (analogRead(TEMP_PIN) * 3.3 / 4095.0) * 100.0; // Scaled temperature
+  int rawADC = analogRead(TEMP_PIN);
+  float tempVal = (rawADC * 3.3 / 4095.0) * 100.0; // Scaled temperature
   bool motionVal = digitalRead(MOTION_PIN) == HIGH;
+
+  // Display values in the Serial Monitor
+  Serial.printf("Sensor Reading - Raw ADC: %d, Temperature: %.1f C, Motion: %s\n", 
+                rawADC, tempVal, motionVal ? "DETECTED" : "CLEAR");
 
   // Build Firestore typed fields structure
   DynamicJsonDocument doc(1024);
