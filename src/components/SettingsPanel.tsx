@@ -71,6 +71,7 @@ export default function SettingsPanel({ settings, onSaveSettings, onClose }: Set
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
+#include <time.h>
 
 // WiFi Credentials
 const char* ssid = "ASUS_X00RD";
@@ -115,6 +116,23 @@ void setup() {
   Serial.println("\\nWiFi Connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
+
+  // Initialize NTP time with 0 offset (UTC)
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.print("Synchronizing time with NTP");
+  struct tm timeinfo;
+  int retry = 0;
+  while (!getLocalTime(&timeinfo) && retry < 15) {
+    delay(500);
+    Serial.print(".");
+    retry++;
+  }
+  Serial.println("");
+  if (getLocalTime(&timeinfo)) {
+    Serial.println("Time synchronized successfully!");
+  } else {
+    Serial.println("Time synchronization failed, using fallback.");
+  }
 }
 
 void loop() {
@@ -225,6 +243,15 @@ void publishTelemetry() {
   Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\\n", 
                 tempVal, motionVal ? "DETECTED" : "CLEAR");
 
+  // Get current UTC time for Firestore timestamp
+  struct tm timeinfo;
+  String isoTime = "";
+  if (getLocalTime(&timeinfo)) {
+    char timeString[30];
+    strftime(timeString, sizeof(timeString), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    isoTime = String(timeString);
+  }
+
   // Build Firestore typed fields structure
   DynamicJsonDocument doc(1024);
   JsonObject fields = doc.createNestedObject("fields");
@@ -243,6 +270,11 @@ void publishTelemetry() {
 
   JsonObject autoObj = fields.createNestedObject("auto");
   autoObj["booleanValue"] = true;
+
+  if (isoTime.length() > 0) {
+    JsonObject timestampObj = fields.createNestedObject("timestamp");
+    timestampObj["timestampValue"] = isoTime;
+  }
 
   String jsonString;
   serializeJson(doc, jsonString);
