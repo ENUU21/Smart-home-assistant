@@ -19,7 +19,7 @@ import {
   createLog,
   calculateComfortScore,
 } from './mockData';
-import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget, pruneOldTelemetry, saveControlState } from './lib/firebase';
+import { saveTelemetry, getRecentTelemetry, subscribeToLatestTelemetry, setFirestoreDatabaseTarget, pruneOldTelemetry, saveControlState, getControlState } from './lib/firebase';
 
 // Component imports
 import Header from './components/Header';
@@ -42,7 +42,7 @@ export default function App() {
   // 1. Initial configuration load from localStorage (or defaults)
   const [settings, setSettings] = useState<DashboardSettings>(() => {
     const saved = localStorage.getItem('kitten_settings');
-    const defaultDbTarget = 'default';
+    const defaultDbTarget = 'custom';
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -50,7 +50,7 @@ export default function App() {
           firestoreSyncEnabled: true,
           firestoreAutoSaveTicks: true,
           ...parsed,
-          firestoreDatabaseTarget: 'default', // Force standard (default) database for Spark compatibility
+          firestoreDatabaseTarget: 'custom',
         };
       } catch (e) {
         // use default
@@ -166,6 +166,18 @@ export default function App() {
         } else {
           addLog('[Cloud] Telemetry collection is empty. Ready for new snapshots.', 'info');
         }
+
+        // Fetch or initialize control state to prevent ESP32 404s
+        const ctrlState = await getControlState();
+        if (isCancelled) return;
+        setEspData((prev) => ({
+          ...prev,
+          led: ctrlState.led !== undefined ? ctrlState.led : prev.led,
+          fan: ctrlState.fan !== undefined ? ctrlState.fan : prev.fan,
+          auto: ctrlState.auto !== undefined ? ctrlState.auto : prev.auto,
+          voice: ctrlState.voice !== undefined ? ctrlState.voice : prev.voice,
+        }));
+        addLog('[Cloud] Control settings synced with database.', 'success');
       } catch (err) {
         addLog(`[Cloud] Failed to fetch initial data: ${(err as Error).message}`, 'warning');
       }
@@ -181,29 +193,14 @@ export default function App() {
       if (latestData.id === lastSeenId) return;
       lastSeenId = latestData.id;
 
-      // Skip if local state matches the incoming Firestore values to prevent feedback echo
-      const cur = espDataRef.current;
-      if (
-        cur.temperature === latestData.temperature &&
-        cur.motion === latestData.motion &&
-        cur.led === latestData.led &&
-        cur.fan === latestData.fan &&
-        cur.auto === latestData.auto &&
-        cur.voice === latestData.voice
-      ) {
-        return;
-      }
-
-      setEspData({
+      // Telemetry strictly updates sensor readings (temperature & motion) to prevent feedback loops with control targets
+      setEspData((prev) => ({
+        ...prev,
         temperature: latestData.temperature,
         motion: latestData.motion,
-        led: latestData.led,
-        fan: latestData.fan,
-        auto: latestData.auto,
-        voice: latestData.voice,
-      });
+      }));
 
-      addLog(`[Cloud] Live Feed Sync: Received database snapshot (Doc ID: ${latestData.id.slice(0, 6)}...)`, 'info');
+      addLog(`[Cloud] Live Feed Sync: Received database telemetry (Temp: ${latestData.temperature}°C, Motion: ${latestData.motion ? 'Active' : 'Clear'})`, 'info');
     });
 
     return () => {
@@ -477,11 +474,11 @@ export default function App() {
 
   // Controls Adjustments dispatch wrappers
   const handleLedChange = (val: number) => {
-    sendCommand(`/led?value=${val}`, { led: val }, `LED brightness set to ${val} (${Math.round((val/255)*100)}%).`);
+    sendCommand(`/led?value=${val}`, { led: val, auto: false }, `LED brightness set to ${val} (${Math.round((val/255)*100)}%) [Manual Mode].`);
   };
 
   const handleFanChange = (val: number) => {
-    sendCommand(`/fan?value=${val}`, { fan: val }, `Climate fan speed set to ${val} (${Math.round((val/255)*100)}%).`);
+    sendCommand(`/fan?value=${val}`, { fan: val, auto: false }, `Climate fan set to ${val > 0 ? 'ON' : 'OFF'} [Manual Mode].`);
   };
 
   const handleVoiceButtonTrigger = () => {

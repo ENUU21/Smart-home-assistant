@@ -87,6 +87,23 @@ export default function MediaControlSection({ currentData, addLog }: MediaContro
     };
   }, []);
 
+  // Automatically play/trigger loaded media
+  useEffect(() => {
+    if (audioRef.current && isPlaying) {
+      audioRef.current.volume = isMuted ? 0 : volume / 100;
+      audioRef.current.play()
+        .then(() => {
+          addLog(`Smart Speaker: Now broadcasting "${currentSong.name}"`, 'success');
+          syncToESP32(true, currentSong, volume);
+        })
+        .catch(err => {
+          console.warn("Local play failed (handling CORS/browser block):", err instanceof Error ? err.message : String(err));
+          addLog(`Smart Speaker: Synced "${currentSong.name}" stream link to ESP32 controls`, 'info');
+          syncToESP32(true, currentSong, volume);
+        });
+    }
+  }, [currentSong, isPlaying]);
+
   // Update ESP32 Control Document with streaming states
   const syncToESP32 = async (playingState: boolean, songObj: Song, volLevel: number) => {
     try {
@@ -128,21 +145,6 @@ export default function MediaControlSection({ currentData, addLog }: MediaContro
   const handlePlaySong = (song: Song) => {
     setCurrentSong(song);
     setIsPlaying(true);
-    if (audioRef.current) {
-      audioRef.current.src = song.url;
-      audioRef.current.load();
-      audioRef.current.volume = isMuted ? 0 : volume / 100;
-      audioRef.current.play()
-        .then(() => {
-          addLog(`Smart Speaker: Now broadcasting "${song.name}"`, 'success');
-          syncToESP32(true, song, volume);
-        })
-        .catch(err => {
-          console.warn("Local play failed (handling CORS/browser block):", err instanceof Error ? err.message : String(err));
-          addLog(`Smart Speaker: Synced "${song.name}" stream link to ESP32 controls`, 'info');
-          syncToESP32(true, song, volume);
-        });
-    }
   };
 
   // Toggle active song play/pause
@@ -221,9 +223,9 @@ export default function MediaControlSection({ currentData, addLog }: MediaContro
           const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
           setUploadProgress(progress);
         }, 
-        (error) => {
-          console.error("Storage upload failed:", error instanceof Error ? error.message : String(error));
-          addLog(`Upload failure: ${error.message}`, 'alert');
+        async (error) => {
+          console.error("Storage upload failed:", error);
+          addLog(`Storage error: ${error.message}. Please click 'Get Started' on the Firebase Console Storage tab!`, 'alert');
           setIsUploading(false);
         }, 
         async () => {
@@ -249,8 +251,8 @@ export default function MediaControlSection({ currentData, addLog }: MediaContro
       );
 
     } catch (err: any) {
-      console.error("Audio save transaction failed:", err instanceof Error ? err.message : String(err));
-      addLog(`File upload system failed: ${err.message}`, 'alert');
+      console.error("Audio save transaction failed:", err);
+      addLog(`File upload system failed: ${err.message || String(err)}. Make sure Storage is enabled!`, 'alert');
       setIsUploading(false);
     }
   };

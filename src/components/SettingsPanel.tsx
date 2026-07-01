@@ -83,12 +83,27 @@ const char* databaseId = "${settings.firestoreDatabaseTarget === 'custom' ? (fir
 
 // Hardware Pins (Adjust to your actual wiring)
 const int LED_PIN = 12;      // PWM Pin for LED Brightness
-const int FAN_PIN = 13;      // PWM Pin for Fan Speed Control
+const int FAN_PIN = 13;      // Digital Pin for Fan ON/OFF Control (Connected to L298N IN1)
 const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
 const int MOTION_PIN = 27;   // PIR Motion sensor pin
 
+/* 
+  L298N MOTOR DRIVER WIRING (Binary Switch Mode):
+  1. ENA Jumper -> KEEP IN PLACE (ties ENA to 5V and keeps Channel A active)
+  2. IN1 Pin    -> Connect to ESP32 Pin 13 (FAN_PIN)
+  3. IN2 Pin    -> Connect to GND (either ESP32 GND or L298N GND terminal)
+  4. OUT1 & OUT2 -> Connect your DC Fan terminals
+  5. L298N GND  -> Connect to ESP32 GND AND external power supply negative (-) terminal (CRITICAL!)
+  6. L298N 12V  -> Connect to positive (+) terminal of external power supply (e.g. 9V/12V adapter)
+*/
+
 #define DHTTYPE DHT11
 DHT dht(DHT_PIN, DHTTYPE);
+
+// Global State Variables (Synchronized with Firestore)
+int ledVal = 128;            // Current LED brightness PWM level (0-255)
+int fanVal = 0;              // Current Fan state (0 = OFF, 255 = ON)
+bool autoMode = true;        // Automation override flag
 
 // Timing Trackers
 unsigned long lastTelemetryTime = 0;
@@ -113,7 +128,7 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\\nWiFi Connected!");
+  Serial.println("\nWiFi Connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
@@ -176,40 +191,49 @@ void fetchControlState() {
     DeserializationError error = deserializeJson(doc, payload);
 
     if (!error) {
-      // Decode Firestore-specific typed fields safely with fallbacks
-      int ledVal = 0;
-      int fanVal = 0;
-      bool autoMode = false;
-
-      if (doc["fields"]["led"]["integerValue"]) {
+      // Decode Firestore-specific typed fields safely with fallbacks into global variables
+      if (doc["fields"]["led"].containsKey("integerValue")) {
         ledVal = doc["fields"]["led"]["integerValue"].as<int>();
       }
-      if (doc["fields"]["fan"]["integerValue"]) {
+      if (doc["fields"]["fan"].containsKey("integerValue")) {
         fanVal = doc["fields"]["fan"]["integerValue"].as<int>();
       }
-      if (doc["fields"]["auto"]["booleanValue"]) {
+      if (doc["fields"]["auto"].containsKey("booleanValue")) {
         autoMode = doc["fields"]["auto"]["booleanValue"].as<bool>();
       }
 
-      Serial.printf("Decoded - LED Brightness: %d%%, Fan Speed: %d, Auto: %s\\n", 
-                    ledVal, fanVal, autoMode ? "ON" : "OFF");
+      Serial.printf("Decoded - LED Duty: %d/255, Fan State: %s, Auto: %s\n", 
+                    ledVal, (fanVal > 0) ? "ON" : "OFF", autoMode ? "ON" : "OFF");
+
+      // Local temperature/occupancy automation if autoMode is active
+      if (autoMode) {
+        float t = dht.readTemperature();
+        bool m = digitalRead(MOTION_PIN) == HIGH;
+        if (!isnan(t)) {
+          // Dynamic thermostat hysteresis (prevents constant rapid switching)
+          if (t >= 28.0) {
+            fanVal = 255; // Full power ON if hot
+          } else if (t < 25.0) {
+            fanVal = 0;   // Shut OFF completely if cool
+          }
+        }
+        if (m) {
+          ledVal = 120;   // Brighten LED if motion is active
+        } else {
+          ledVal = 0;     // Shut off LED if no motion
+        }
+      }
 
       // Set hardware outputs
-      // Translate led 0-100% to ESP32 PWM 0-255
-      analogWrite(LED_PIN, map(ledVal, 0, 100, 0, 255));
-      
-      // Translate fan level (0-3) to ESP32 PWM
-      int fanPWM = 0;
-      if (fanVal == 1) fanPWM = 85;
-      else if (fanVal == 2) fanPWM = 170;
-      else if (fanVal == 3) fanPWM = 255;
-      analogWrite(FAN_PIN, fanPWM);
+      analogWrite(LED_PIN, constrain(ledVal, 0, 255));
+      // Write to Fan as a simple binary Digital HIGH/LOW to prevent startup stalling and core incompatibilities
+      digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
     } else {
       Serial.print("JSON Deserialization failed: ");
       Serial.println(error.c_str());
     }
   } else {
-    Serial.printf("GET control state failed, HTTP error: %d\\n", httpResponseCode);
+    Serial.printf("GET control state failed, HTTP error: %d\n", httpResponseCode);
   }
   http.end();
 }
@@ -240,7 +264,7 @@ void publishTelemetry() {
   }
 
   // Display values in the Serial Monitor
-  Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\\n", 
+  Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\n", 
                 tempVal, motionVal ? "DETECTED" : "CLEAR");
 
   // Get current UTC time for Firestore timestamp
@@ -252,7 +276,7 @@ void publishTelemetry() {
     isoTime = String(timeString);
   }
 
-  // Build Firestore typed fields structure
+  // Build Firestore typed fields structure containing ONLY sensor telemetry
   DynamicJsonDocument doc(1024);
   JsonObject fields = doc.createNestedObject("fields");
 
@@ -261,15 +285,6 @@ void publishTelemetry() {
 
   JsonObject motionObj = fields.createNestedObject("motion");
   motionObj["booleanValue"] = motionVal;
-
-  JsonObject ledObj = fields.createNestedObject("led");
-  ledObj["integerValue"] = 50; // Replace with actual current states if needed
-
-  JsonObject fanObj = fields.createNestedObject("fan");
-  fanObj["integerValue"] = 1;
-
-  JsonObject autoObj = fields.createNestedObject("auto");
-  autoObj["booleanValue"] = true;
 
   if (isoTime.length() > 0) {
     JsonObject timestampObj = fields.createNestedObject("timestamp");
@@ -284,7 +299,7 @@ void publishTelemetry() {
   if (httpResponseCode == 200 || httpResponseCode == 201) {
     Serial.println("[Firestore] Telemetry updated successfully!");
   } else {
-    Serial.printf("POST telemetry failed, HTTP: %d\\n", httpResponseCode);
+    Serial.printf("POST telemetry failed, HTTP: %d\n", httpResponseCode);
   }
   http.end();
 }`;

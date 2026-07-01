@@ -22,7 +22,9 @@ import {
   Radio,
   Zap,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Send,
+  Keyboard
 } from 'lucide-react';
 import { ESP32Data } from '../types';
 import GlowCard from './GlowCard';
@@ -70,12 +72,162 @@ export default function VoiceAssistant({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSong, setCurrentSong] = useState(SONGS[0]);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<'free-stt' | 'gemini-ai'>('free-stt');
+  const [textCommand, setTextCommand] = useState('');
+
+  const recognitionRef = useRef<any>(null);
 
   // Spark Plan Credit Quota (Default: 150)
   const [credits, setCredits] = useState<number>(() => {
     const saved = localStorage.getItem('kitten_ai_credits');
     return saved !== null ? parseInt(saved, 10) : 150;
   });
+
+  // Local Voice parser to prevent any token usage
+  const parseTextCommand = (command: string) => {
+    const normalized = command.toLowerCase();
+    const updates: Partial<ESP32Data> = { voice: false };
+    let reply = "I parsed your command.";
+    
+    if (normalized.includes("fan") || normalized.includes("cooler") || normalized.includes("ventilation")) {
+      // Find the first number in the string
+      const numberMatch = normalized.match(/\d+/);
+      if (numberMatch) {
+        const val = parseInt(numberMatch[0], 10);
+        // Let's cap at 255
+        const constrainedVal = Math.min(255, Math.max(0, val));
+        updates.fan = constrainedVal;
+        updates.auto = false;
+        reply = `Setting the ventilation fan power level to ${constrainedVal} [Manual Mode].`;
+      } else if (normalized.includes("on") || normalized.includes("active") || normalized.includes("start") || normalized.includes("run")) {
+        updates.fan = 255; // Full power digital switch
+        updates.auto = false;
+        reply = "Turning the ventilation fan ON [Manual Mode].";
+      } else if (normalized.includes("off") || normalized.includes("stop") || normalized.includes("standby") || normalized.includes("shut")) {
+        updates.fan = 0;
+        updates.auto = false;
+        reply = "Turning the ventilation fan OFF.";
+      } else {
+        reply = "I heard you mention the fan, but couldn't detect a command. Try 'turn fan on' or 'set fan to 255'.";
+      }
+    } else if (normalized.includes("led") || normalized.includes("light") || normalized.includes("brightness") || normalized.includes("glow")) {
+      const numberMatch = normalized.match(/\d+/);
+      if (numberMatch) {
+        const val = parseInt(numberMatch[0], 10);
+        const constrainedVal = Math.min(255, Math.max(0, val));
+        updates.led = constrainedVal;
+        updates.auto = false;
+        reply = `Setting the light brightness level to ${constrainedVal} (${Math.round((constrainedVal/255)*100)}%) [Manual Mode].`;
+      } else if (normalized.includes("on")) {
+        updates.led = 255;
+        updates.auto = false;
+        reply = "Turning the lighting array ON [Maximum glow].";
+      } else if (normalized.includes("off")) {
+        updates.led = 0;
+        updates.auto = false;
+        reply = "Turning the lighting array OFF.";
+      } else {
+        reply = "I heard you mention the light, but couldn't detect a level. Try 'turn light off' or 'set LED to 150'.";
+      }
+    } else if (normalized.includes("auto") || normalized.includes("automatic")) {
+      if (normalized.includes("on") || normalized.includes("enable") || normalized.includes("activate")) {
+        updates.auto = true;
+        reply = "Enabling automatic microclimate system automation.";
+      } else if (normalized.includes("off") || normalized.includes("disable") || normalized.includes("manual")) {
+        updates.auto = false;
+        reply = "Switching to manual microclimate control mode.";
+      }
+    } else if (normalized.includes("movie")) {
+      updates.led = 20;
+      updates.fan = 0;
+      updates.auto = false;
+      reply = "Activating movie night preset: Lights dimmed low, ventilation fan silenced.";
+    } else if (normalized.includes("gaming") || normalized.includes("game")) {
+      updates.led = 255;
+      updates.fan = 255;
+      updates.auto = false;
+      reply = "Activating gaming preset: Full LED glow and maximum fan power.";
+    } else if (normalized.includes("sleep")) {
+      updates.led = 0;
+      updates.fan = 0;
+      updates.auto = false;
+      reply = "Activating bedtime sleep preset: LED off and fan shut down.";
+    } else if (normalized.includes("study") || normalized.includes("work")) {
+      updates.led = 150;
+      updates.fan = 80;
+      updates.auto = false;
+      reply = "Activating productive study preset: Focus lights at 150, gentle ventilation fan.";
+    } else {
+      reply = "Local command received but not matched. Try saying 'turn fan on', 'set fan to 255', or 'movie mode'.";
+    }
+
+    return { updates, reply };
+  };
+
+  // Initialize Web Speech Recognition
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        setVoiceStatus('LISTENING');
+        setLastCommand('Listening to your voice command...');
+        setAssistantReply('Speak now! Say a command like "set fan to 255" or "turn fan off".');
+      };
+
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setLastCommand(`"${transcript}"`);
+        setVoiceStatus('PROCESSING');
+        setAssistantReply('Parsing text command locally...');
+
+        setTimeout(() => {
+          const { updates, reply } = parseTextCommand(transcript);
+          setAssistantReply(reply);
+          
+          onCommandTriggered(
+            updates,
+            `Local Speech: "${transcript}". Reply: "${reply}"`
+          );
+
+          // Music triggers based on parsing
+          if (transcript.toLowerCase().includes('sleep')) {
+            playSong(SONGS[1]);
+          } else if (transcript.toLowerCase().includes('gaming') || transcript.toLowerCase().includes('game')) {
+            playSong(SONGS[2]);
+          } else if (transcript.toLowerCase().includes('music') || transcript.toLowerCase().includes('play')) {
+            playSong(SONGS[0]);
+          } else if (transcript.toLowerCase().includes('stop') && transcript.toLowerCase().includes('music')) {
+            stopSong();
+          }
+
+          setVoiceStatus('IDLE');
+        }, 800);
+      };
+
+      rec.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error === 'no-speech') {
+          setAssistantReply('No speech detected. Click the Mic to try again.');
+        } else if (event.error === 'network') {
+          setAssistantReply('⚠️ Network connection issue: The browser Web Speech API failed to connect to Google\'s transcription servers. This often occurs inside sandboxed iframes or restricted corporate networks. Please use the simulated preset buttons or type your command in the input box below!');
+        } else {
+          setAssistantReply(`Speech recognition error: ${event.error}`);
+        }
+        setVoiceStatus('IDLE');
+      };
+
+      rec.onend = () => {
+        setVoiceStatus('IDLE');
+      };
+
+      recognitionRef.current = rec;
+    }
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('kitten_ai_credits', credits.toString());
@@ -445,6 +597,29 @@ export default function VoiceAssistant({
     }, 1000);
   };
 
+  const handleMicClick = () => {
+    if (voiceStatus === 'LISTENING') {
+      if (voiceMode === 'free-stt') {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+      } else {
+        stopRecording();
+      }
+    } else {
+      if (voiceMode === 'free-stt') {
+        if (recognitionRef.current) {
+          onVoiceTrigger();
+          recognitionRef.current.start();
+        } else {
+          setAssistantReply('⚠️ Local Speech Recognition is not supported in this browser. Please use Google Chrome or Edge, or switch to Gemini Live AI mode.');
+        }
+      } else {
+        startRecording();
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <GlowCard
@@ -454,12 +629,46 @@ export default function VoiceAssistant({
         glowColor={voiceStatus === 'LISTENING' ? 'cyan' : voiceStatus === 'PROCESSING' ? 'purple' : 'none'}
       >
         <div className="flex flex-col gap-5">
+          {/* Voice Processing Mode Selector */}
+          <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-xl border border-slate-900 text-center text-[10px] font-mono">
+            <button
+              id="btn-voice-mode-stt"
+              onClick={() => {
+                if (voiceStatus === 'IDLE') setVoiceMode('free-stt');
+              }}
+              disabled={voiceStatus !== 'IDLE'}
+              className={`py-1.5 rounded-lg font-bold cursor-pointer transition-all ${
+                voiceMode === 'free-stt'
+                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                  : 'text-slate-500 hover:text-slate-400 border border-transparent'
+              }`}
+              title="Transcribe speech in browser for free, parsing triggers with zero token costs"
+            >
+              FREE GOOGLE STT
+            </button>
+            <button
+              id="btn-voice-mode-gemini"
+              onClick={() => {
+                if (voiceStatus === 'IDLE') setVoiceMode('gemini-ai');
+              }}
+              disabled={voiceStatus !== 'IDLE'}
+              className={`py-1.5 rounded-lg font-bold cursor-pointer transition-all ${
+                voiceMode === 'gemini-ai'
+                  ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                  : 'text-slate-500 hover:text-slate-400 border border-transparent'
+              }`}
+              title="Stream speech raw to Gemini for rich semantic and generative intelligence"
+            >
+              GEMINI LIVE AI
+            </button>
+          </div>
+
           {/* State Display, Mic Control, & Waveform */}
           <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-900 bg-slate-950/40">
             <div className="flex items-center gap-3">
               <button
                 id="btn-voice-mic-trigger"
-                onClick={voiceStatus === 'LISTENING' ? stopRecording : startRecording}
+                onClick={handleMicClick}
                 disabled={voiceStatus === 'PROCESSING' || isLoading}
                 className={`p-3 rounded-xl transition-all duration-300 cursor-pointer ${
                   voiceStatus === 'LISTENING'
@@ -468,7 +677,7 @@ export default function VoiceAssistant({
                       ? 'bg-purple-500/10 text-purple-400 animate-spin border border-purple-500/20'
                       : 'bg-slate-900 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 border border-slate-800'
                 }`}
-                title={voiceStatus === 'LISTENING' ? 'Click to stop recording' : 'Click to speak to Gemini'}
+                title={voiceStatus === 'LISTENING' ? 'Click to stop recording' : 'Click to start speaking'}
               >
                 {voiceStatus === 'LISTENING' ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
               </button>
@@ -595,6 +804,63 @@ export default function VoiceAssistant({
                 {assistantReply}
               </div>
             </div>
+          </div>
+
+          {/* Keyboard Command Console Input Fallback */}
+          <div>
+            <span className="text-[10px] text-slate-500 font-mono tracking-wider block mb-2 uppercase flex items-center gap-1">
+              <Keyboard className="w-3.5 h-3.5 text-cyan-400" /> Type Keyboard Command
+            </span>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const cmd = textCommand.trim();
+                if (!cmd) return;
+                setTextCommand('');
+                setLastCommand(`"${cmd}" (Typed)`);
+                setVoiceStatus('PROCESSING');
+                setAssistantReply('Parsing text command locally...');
+                
+                setTimeout(() => {
+                  const { updates, reply } = parseTextCommand(cmd);
+                  setAssistantReply(reply);
+                  onCommandTriggered(
+                    updates,
+                    `Typed: "${cmd}". Reply: "${reply}"`
+                  );
+                  
+                  // Music triggers based on parsing
+                  if (cmd.toLowerCase().includes('sleep')) {
+                    playSong(SONGS[1]);
+                  } else if (cmd.toLowerCase().includes('gaming') || cmd.toLowerCase().includes('game')) {
+                    playSong(SONGS[2]);
+                  } else if (cmd.toLowerCase().includes('music') || cmd.toLowerCase().includes('play')) {
+                    playSong(SONGS[0]);
+                  } else if (cmd.toLowerCase().includes('stop') && cmd.toLowerCase().includes('music')) {
+                    stopSong();
+                  }
+
+                  setVoiceStatus('IDLE');
+                }, 400);
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={textCommand}
+                onChange={(e) => setTextCommand(e.target.value)}
+                placeholder='e.g. "turn fan on", "set fan to 180", "movie mode"'
+                className="flex-grow bg-slate-950 border border-slate-900 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/25 font-mono"
+              />
+              <button
+                type="submit"
+                disabled={voiceStatus !== 'IDLE' || isLoading}
+                className="px-4 py-2.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 rounded-xl text-xs font-mono font-bold tracking-wider cursor-pointer active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-1.5"
+              >
+                <Send className="w-3 h-3" />
+                <span>SEND</span>
+              </button>
+            </form>
           </div>
 
           {/* Quick Voice Simulation Buttons */}

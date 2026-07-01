@@ -13,7 +13,8 @@ import {
   DocumentData,
   deleteDoc,
   doc,
-  setDoc
+  setDoc,
+  getDoc
 } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -37,7 +38,7 @@ export const storage = getStorage(app);
 
 // Initialize Firestore
 // Use the custom database ID if available (ai-studio-kittensmarthomea-...)
-export const customDb = firebaseConfig.firestoreDatabaseId
+export const customDb = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : null;
 
@@ -163,6 +164,49 @@ export async function saveTelemetry(data: Omit<ESP32Data, 'voice'> & { voice?: b
     });
     return docRef.id;
   }, OperationType.WRITE, path);
+}
+
+/**
+ * Retrieves the latest control state from Firestore.
+ * If it doesn't exist, initializes it with defaults.
+ */
+export async function getControlState(): Promise<Partial<ESP32Data> & { songUrl?: string; songName?: string; isPlaying?: boolean; volume?: number }> {
+  const path = 'control';
+  return runWithFallback(async (dbInstance) => {
+    const controlDocRef = doc(dbInstance, path, 'esp32');
+    const docSnap = await getDoc(controlDocRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        led: data.led !== undefined ? Number(data.led) : undefined,
+        fan: data.fan !== undefined ? Number(data.fan) : undefined,
+        auto: data.auto !== undefined ? Boolean(data.auto) : undefined,
+        voice: data.voice !== undefined ? Boolean(data.voice) : undefined,
+        songUrl: data.songUrl,
+        songName: data.songName,
+        isPlaying: data.isPlaying,
+        volume: data.volume,
+      };
+    } else {
+      // Document does not exist (recreated database), initialize with default control values
+      const initialControl = {
+        led: 50,
+        fan: 1,
+        auto: true,
+        voice: false,
+        songUrl: '',
+        songName: '',
+        isPlaying: false,
+        volume: 50,
+      };
+      await setDoc(controlDocRef, {
+        ...initialControl,
+        lastUpdated: serverTimestamp(),
+      });
+      return initialControl;
+    }
+  }, OperationType.GET, path);
 }
 
 /**
