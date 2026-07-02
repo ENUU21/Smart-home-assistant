@@ -82,37 +82,25 @@ const char* projectId = "${firebaseConfig.projectId || 'kitten-smarthome'}";
 const char* databaseId = "${settings.firestoreDatabaseTarget === 'custom' ? (firebaseConfig.firestoreDatabaseId || '(default)') : '(default)'}";
 
 // Hardware Pins (Adjust to your actual wiring)
-const int RED_PIN = 12;      // GPIO pin for Red channel
-const int GREEN_PIN = 14;    // GPIO pin for Green channel
-const int BLUE_PIN = 26;     // GPIO pin for Blue channel
+const int LED_PIN = 12;      // Single GPIO pin connected to your combined Red, Green, Blue LED legs
 const int FAN_PIN = 13;      // Digital Pin for Fan ON/OFF Control (Connected to L298N IN1)
 const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
 const int MOTION_PIN = 27;   // PIR Motion sensor pin
 
 /* 
-  RGB LED WIRING DIAGRAM:
-  An RGB LED has 4 pins. Pin 1 is Red, Pin 2 is Common (longest leg), Pin 3 is Green, Pin 4 is Blue.
+  COMBINED RGB LED / MONOCHROME LED WIRING DIAGRAM:
+  You have connected all three RGB legs (Red, Green, Blue) of your LED together, and 
+  connected them through a 220 Ohm resistor to a single ESP32 Pin (GPIO 12).
   
-  Option 1: Common Cathode RGB LED (Common Ground) - DEFAULT IN THIS CODE
-  1. RED pin (Pin 1)   -> 220 Ohm Resistor -> Connect to ESP32 Pin 12 (RED_PIN)
-  2. COMMON pin (Pin 2) -> Connect directly to ESP32 GND
-  3. GREEN pin (Pin 3) -> 220 Ohm Resistor -> Connect to ESP32 Pin 14 (GREEN_PIN)
-  4. BLUE pin (Pin 4)  -> 220 Ohm Resistor -> Connect to ESP32 Pin 26 (BLUE_PIN)
-  
-  Option 2: Common Anode RGB LED (Common VCC)
-  1. RED pin (Pin 1)   -> 220 Ohm Resistor -> Connect to ESP32 Pin 12 (RED_PIN)
-  2. COMMON pin (Pin 2) -> Connect directly to ESP32 3.3V (or 5V)
-  3. GREEN pin (Pin 3) -> 220 Ohm Resistor -> Connect to ESP32 Pin 14 (GREEN_PIN)
-  4. BLUE pin (Pin 4)  -> 220 Ohm Resistor -> Connect to ESP32 Pin 26 (BLUE_PIN)
-  *Note: For Common Anode, the signals must be inverted! (Uncomment the inversion line in setRGBColor() below).
+  This allows controlling the light intensity of the combined colors uniformly from a single pin!
 */
 
 #define DHTTYPE DHT11
 DHT dht(DHT_PIN, DHTTYPE);
 
-// Choose your RGB LED type:
-// Set to true if you have a Common Anode RGB LED (longest leg connected to VCC / 3.3V or 5V)
-// Set to false if you have a Common Cathode RGB LED (longest leg connected to GND)
+// Choose your LED type:
+// Set to true if you have a Common Anode LED setup (longest leg connected to VCC)
+// Set to false if you have a Common Cathode LED setup (longest leg connected to GND)
 const bool IS_COMMON_ANODE = false;
 
 // Global State Variables (Synchronized with Firestore)
@@ -120,41 +108,21 @@ int ledVal = 128;            // Current LED brightness level (0-255)
 int fanVal = 0;              // Current Fan state (0 = OFF, 255 = ON)
 bool autoMode = true;        // Automation override flag
 
-// Helper function to write color values to RGB channels
-void setRGBColor(int r, int g, int b) {
-  // Constrain inputs to standard PWM range
-  r = constrain(r, 0, 255);
-  g = constrain(g, 0, 255);
-  b = constrain(b, 0, 255);
+// Helper function to write intensity value to the single LED channel
+void setLEDIntensity(int val) {
+  // Constrain inputs to standard PWM range (0-255)
+  val = constrain(val, 0, 255);
 
-  // Invert signals if using Common Anode LED
-  int outR = IS_COMMON_ANODE ? (255 - r) : r;
-  int outG = IS_COMMON_ANODE ? (255 - g) : g;
-  int outB = IS_COMMON_ANODE ? (255 - b) : b;
+  // Invert signal if using Common Anode LED
+  int outVal = IS_COMMON_ANODE ? (255 - val) : val;
 
   // Use direct digital writes for boundaries (0 and 255) to guarantee absolute ON/OFF states and bypass ESP32 PWM driver glitches
-  if (outR <= 0) {
-    digitalWrite(RED_PIN, LOW);
-  } else if (outR >= 255) {
-    digitalWrite(RED_PIN, HIGH);
+  if (outVal <= 0) {
+    digitalWrite(LED_PIN, LOW);
+  } else if (outVal >= 255) {
+    digitalWrite(LED_PIN, HIGH);
   } else {
-    analogWrite(RED_PIN, outR);
-  }
-
-  if (outG <= 0) {
-    digitalWrite(GREEN_PIN, LOW);
-  } else if (outG >= 255) {
-    digitalWrite(GREEN_PIN, HIGH);
-  } else {
-    analogWrite(GREEN_PIN, outG);
-  }
-
-  if (outB <= 0) {
-    digitalWrite(BLUE_PIN, LOW);
-  } else if (outB >= 255) {
-    digitalWrite(BLUE_PIN, HIGH);
-  } else {
-    analogWrite(BLUE_PIN, outB);
+    analogWrite(LED_PIN, outVal);
   }
 }
 
@@ -167,9 +135,7 @@ const unsigned long controlInterval = 2000;  // Fetch controls every 2 seconds
 void setup() {
   Serial.begin(115200);
   
-  pinMode(RED_PIN, OUTPUT);
-  pinMode(GREEN_PIN, OUTPUT);
-  pinMode(BLUE_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(MOTION_PIN, INPUT);
 
@@ -281,25 +247,8 @@ void fetchControlState() {
       }
 
       // Set hardware outputs
-      // Map brightness levels/presets directly to color palettes
-      if (ledVal == 0) {
-        setRGBColor(0, 0, 0); // Off
-      } else if (ledVal == 20) {
-        // Movie Preset (Deep Indigo Glow)
-        setRGBColor(10, 0, 20);
-      } else if (ledVal == 255) {
-        // Gaming Preset (Neon Magenta)
-        setRGBColor(128, 0, 255);
-      } else if (ledVal == 150) {
-        // Study Preset (Daylight White)
-        setRGBColor(150, 150, 150);
-      } else {
-        // Standard manual adjustment (Scalable warm amber light)
-        int r = ledVal;
-        int g = (ledVal * 75) / 100;
-        int b = (ledVal * 35) / 100;
-        setRGBColor(r, g, b);
-      }
+      // Adjust the combined LED intensity through the single LED_PIN
+      setLEDIntensity(ledVal);
       // Write to Fan as a simple binary Digital HIGH/LOW to prevent startup stalling and core incompatibilities
       digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
     } else {
