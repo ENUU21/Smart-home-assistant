@@ -53,7 +53,9 @@ export function generateInitialHistory(currentState: ESP32Data): HistoryDataPoin
     
     // Add random fluctuations around a base
     const offset = Math.sin(i / 2) * 1.5;
-    const temp = Math.round((currentState.temperature - 2 + offset) * 10) / 10;
+    const temp = currentState.temperature !== null && currentState.temperature !== undefined
+      ? Math.round((currentState.temperature - 2 + offset) * 10) / 10
+      : null;
     const ledVal = i === 0 ? currentState.led : Math.max(0, Math.min(255, currentState.led + Math.round((Math.random() - 0.5) * 40)));
     const fanVal = i === 0 ? currentState.fan : Math.max(0, Math.min(255, currentState.fan + Math.round((Math.random() - 0.5) * 30)));
     const motionVal = Math.random() > 0.7 ? 1 : 0;
@@ -71,19 +73,21 @@ export function generateInitialHistory(currentState: ESP32Data): HistoryDataPoin
 }
 
 // Calculate interactive comfort score (0-100%) based on environment variables
-export function calculateComfortScore(temp: number, fan: number, led: number): number {
-  // Ideal temperature range is 21C - 24C
+export function calculateComfortScore(temp: number | null | undefined, fan: number, led: number): number {
   let tempPenalty = 0;
-  if (temp < 21) {
-    tempPenalty = (21 - temp) * 8; // penalty for being too cold
-  } else if (temp > 24) {
-    tempPenalty = (temp - 24) * 6; // penalty for being too hot
-  }
+  if (temp !== null && temp !== undefined && !isNaN(temp)) {
+    // Ideal temperature range is 21C - 24C
+    if (temp < 21) {
+      tempPenalty = (21 - temp) * 8; // penalty for being too cold
+    } else if (temp > 24) {
+      tempPenalty = (temp - 24) * 6; // penalty for being too hot
+    }
 
-  // Fan helps with hot temp penalty
-  if (temp > 25 && fan > 50) {
-    const fanRelief = Math.min((fan / 255) * 12, tempPenalty * 0.5);
-    tempPenalty -= fanRelief;
+    // Fan helps with hot temp penalty
+    if (temp > 25 && fan > 50) {
+      const fanRelief = Math.min((fan / 255) * 12, tempPenalty * 0.5);
+      tempPenalty -= fanRelief;
+    }
   }
 
   // Extreme LED brightness (either pitch black or overly blinding) decreases comfort slightly

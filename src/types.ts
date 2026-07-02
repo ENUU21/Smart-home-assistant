@@ -4,7 +4,7 @@
  */
 
 export interface ESP32Data {
-  temperature: number;
+  temperature: number | null;
   motion: boolean;
   led: number; // 0-255
   fan: number; // 0-255
@@ -29,7 +29,7 @@ export interface ActivityLog {
 
 export interface HistoryDataPoint {
   time: string;
-  temperature: number;
+  temperature: number | null;
   motion: number; // 0 or 1 for chart
   led: number;
   fan: number;

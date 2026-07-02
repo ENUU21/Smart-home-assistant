@@ -265,6 +265,7 @@ void fetchControlState() {
         float t = dht.readTemperature();
         bool m = digitalRead(MOTION_PIN) == HIGH;
         if (!isnan(t)) {
+          t -= 2.0; // Apply offset of -2C
           // Dynamic thermostat hysteresis (prevents constant rapid switching)
           if (t >= 28.0) {
             fanVal = 255; // Full power ON if hot
@@ -280,43 +281,24 @@ void fetchControlState() {
       }
 
       // Set hardware outputs
-      if (autoMode) {
-        // Temperature-based RGB feedback in Auto mode (with motion override)
-        float t = dht.readTemperature();
-        if (!isnan(t) && ledVal > 0) {
-          if (t >= 28.0) {
-            // Hot environment -> Glow Red
-            setRGBColor(ledVal, 0, 0);
-          } else if (t < 25.0) {
-            // Cold environment -> Glow Blue
-            setRGBColor(0, 0, ledVal);
-          } else {
-            // Comfortable environment -> Glow warm Green
-            setRGBColor(0, ledVal, 0);
-          }
-        } else {
-          setRGBColor(0, 0, 0); // Off if motion inactive or sensor failed
-        }
+      // Map brightness levels/presets directly to color palettes
+      if (ledVal == 0) {
+        setRGBColor(0, 0, 0); // Off
+      } else if (ledVal == 20) {
+        // Movie Preset (Deep Indigo Glow)
+        setRGBColor(10, 0, 20);
+      } else if (ledVal == 255) {
+        // Gaming Preset (Neon Magenta)
+        setRGBColor(128, 0, 255);
+      } else if (ledVal == 150) {
+        // Study Preset (Daylight White)
+        setRGBColor(150, 150, 150);
       } else {
-        // Manual control: map preset brightness levels to custom color palettes
-        if (ledVal == 0) {
-          setRGBColor(0, 0, 0); // Off
-        } else if (ledVal == 20) {
-          // Movie Preset (Deep Indigo Glow)
-          setRGBColor(10, 0, 20);
-        } else if (ledVal == 255) {
-          // Gaming Preset (Neon Magenta)
-          setRGBColor(128, 0, 255);
-        } else if (ledVal == 150) {
-          // Study Preset (Daylight White)
-          setRGBColor(150, 150, 150);
-        } else {
-          // Standard manual adjustment (Scalable warm amber light)
-          int r = ledVal;
-          int g = (ledVal * 75) / 100;
-          int b = (ledVal * 35) / 100;
-          setRGBColor(r, g, b);
-        }
+        // Standard manual adjustment (Scalable warm amber light)
+        int r = ledVal;
+        int g = (ledVal * 75) / 100;
+        int b = (ledVal * 35) / 100;
+        setRGBColor(r, g, b);
       }
       // Write to Fan as a simple binary Digital HIGH/LOW to prevent startup stalling and core incompatibilities
       digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
@@ -349,10 +331,12 @@ void publishTelemetry() {
   float tempVal = dht.readTemperature();
   bool motionVal = digitalRead(MOTION_PIN) == HIGH;
 
-  // Handle sensor reading failures
+  // Handle sensor reading failures and apply offset
   if (isnan(tempVal)) {
     Serial.println("Warning: Failed to read temperature from DHT11 sensor!");
     tempVal = 24.5; // Fail-safe default or skip publishing
+  } else {
+    tempVal -= 2.0; // Apply offset of -2C
   }
 
   // Display values in the Serial Monitor

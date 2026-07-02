@@ -17,6 +17,9 @@ export default function EnvironmentSection({ data }: EnvironmentSectionProps) {
 
   // Determine ambient room state status string
   const getRoomStatusAndColor = () => {
+    if (data.temperature === null || data.temperature === undefined || isNaN(data.temperature)) {
+      return { text: 'SENSOR OFFLINE', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' };
+    }
     if (data.temperature >= 30) {
       return { text: 'ROOM IS HOT', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
     }
@@ -33,7 +36,7 @@ export default function EnvironmentSection({ data }: EnvironmentSectionProps) {
       id="card-environment-control"
       title="Environment Status"
       subtitle="LIVE AMBIENT CLIMATE TELEMETRY"
-      glowColor={data.temperature >= 30 ? 'amber' : 'cyan'}
+      glowColor={data.temperature !== null && data.temperature !== undefined && data.temperature >= 30 ? 'amber' : 'cyan'}
       className="md:col-span-2 overflow-hidden"
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
@@ -46,14 +49,16 @@ export default function EnvironmentSection({ data }: EnvironmentSectionProps) {
 
           <div className="relative inline-flex items-baseline justify-center sm:justify-start">
             <span className="text-7xl font-extrabold tracking-tighter text-white font-sans select-none drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-              {data.temperature}
+              {data.temperature !== null && data.temperature !== undefined && !isNaN(data.temperature) ? data.temperature : 'N/A'}
             </span>
-            <span className="text-4xl font-semibold text-cyan-400 ml-1 select-none font-sans">
-              °C
-            </span>
+            {data.temperature !== null && data.temperature !== undefined && !isNaN(data.temperature) && (
+              <span className="text-4xl font-semibold text-cyan-400 ml-1 select-none font-sans">
+                °C
+              </span>
+            )}
             
             {/* Visual heating/cooling indicators */}
-            {data.temperature >= 30 && (
+            {data.temperature !== null && data.temperature !== undefined && !isNaN(data.temperature) && data.temperature >= 30 && (
               <span className="absolute -top-1 -right-7 flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
@@ -123,8 +128,8 @@ export default function EnvironmentSection({ data }: EnvironmentSectionProps) {
       {/* Cyber ambient footer decoration */}
       <div className="mt-5 border-t border-slate-900/40 pt-4 flex items-center justify-between font-mono text-[10px] text-slate-500">
         <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-          <span>SENSORS ONLINE & BROADCASTING</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${data.temperature !== null && data.temperature !== undefined && !isNaN(data.temperature) ? 'bg-emerald-500 animate-ping' : 'bg-rose-500 animate-pulse'}`} />
+          <span>{data.temperature !== null && data.temperature !== undefined && !isNaN(data.temperature) ? 'SENSORS ONLINE & BROADCASTING' : 'WAITING FOR SENSOR DATA / SENSOR OFFLINE'}</span>
         </div>
         <div className="flex items-center gap-1">
           <span>COMFORT INDEX:</span>

@@ -322,7 +322,7 @@ export async function getRecentTelemetry(limitCount: number = 15): Promise<Histo
 
       points.push({
         time: timeStr,
-        temperature: Number(data.temperature ?? 24),
+        temperature: (data.temperature !== null && data.temperature !== undefined) ? Number(data.temperature) : null,
         motion: data.motion ? 1 : 0,
         led: Number(data.led ?? 0),
         fan: Number(data.fan ?? 0),
@@ -362,7 +362,7 @@ export function subscribeToLatestTelemetry(onUpdate: (data: ESP32Data & { id: st
         const data = doc.data();
         onUpdate({
           id: doc.id,
-          temperature: Number(data.temperature ?? 24),
+          temperature: (data.temperature !== null && data.temperature !== undefined) ? Number(data.temperature) : null,
           motion: Boolean(data.motion),
           led: Number(data.led ?? 0),
           fan: Number(data.fan ?? 0),

@@ -97,12 +97,28 @@ export default function App() {
   }, [settings]);
 
   // 2. Main Live State buffers
-  const [espData, setEspData] = useState<ESP32Data>(initialESPState);
+  const [espData, setEspData] = useState<ESP32Data>(() => {
+    const saved = localStorage.getItem('kitten_settings');
+    let isSimMode = true;
+    if (saved) {
+      try {
+        isSimMode = JSON.parse(saved).simulationMode !== false;
+      } catch (e) {}
+    }
+    return isSimMode ? initialESPState : { ...initialESPState, temperature: null };
+  });
   const [systemHealth, setSystemHealth] = useState<SystemHealthMetrics>(initialSystemHealth);
   const [logs, setLogs] = useState<ActivityLog[]>(initialLogs);
-  const [historyData, setHistoryData] = useState<HistoryDataPoint[]>(() =>
-    generateInitialHistory(initialESPState)
-  );
+  const [historyData, setHistoryData] = useState<HistoryDataPoint[]>(() => {
+    const saved = localStorage.getItem('kitten_settings');
+    let isSimMode = true;
+    if (saved) {
+      try {
+        isSimMode = JSON.parse(saved).simulationMode !== false;
+      } catch (e) {}
+    }
+    return generateInitialHistory(isSimMode ? initialESPState : { ...initialESPState, temperature: null });
+  });
 
   // UI state controllers
   const [isConnected, setIsConnected] = useState<boolean>(true);

@@ -27,8 +27,8 @@ export default function AnalyticsSection({ historyData }: AnalyticsSectionProps)
               <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
               <span className="uppercase text-[9px] font-bold text-slate-400">{entry.name}:</span>
               <span className="text-slate-100 font-bold">
-                {entry.value}
-                {entry.name === 'temperature' ? '°C' : entry.name === 'motion' ? ' (Yes/No)' : ' (DAC)'}
+                {entry.value !== null && entry.value !== undefined && !isNaN(entry.value) ? entry.value : 'N/A'}
+                {entry.value !== null && entry.value !== undefined && !isNaN(entry.value) && (entry.name === 'temperature' ? '°C' : entry.name === 'motion' ? ' (Yes/No)' : ' (DAC)')}
               </span>
             </div>
           ))}
