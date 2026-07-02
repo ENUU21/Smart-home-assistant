@@ -494,9 +494,68 @@ export default function App() {
     sendCommand(endpoint, updates, logMsg);
   };
 
-  const handleVoiceCommandAction = (updates: Partial<ESP32Data>, logMsg: string) => {
+  const handleVoiceCommandAction = async (updates: Partial<ESP32Data>, logMsg: string) => {
+    setIsFetching(true);
+    
+    // Immediately apply to UI for instantaneous response feel
     setEspData((prev) => ({ ...prev, ...updates }));
-    addLog(logMsg, 'success');
+
+    // Sync to Firestore if enabled
+    if (settings.firestoreSyncEnabled) {
+      const mergedState = { ...espDataRef.current, ...updates };
+      try {
+        await saveControlState(mergedState);
+        console.log('[Firestore] Control state synced successfully to control/esp32');
+      } catch (err) {
+        console.error('[Firestore] Failed to sync control state to Firestore:', err instanceof Error ? err.message : String(err));
+      }
+      addLog(logMsg, 'success');
+      setIsFetching(false);
+      return;
+    }
+
+    if (settings.simulationMode) {
+      addLog(logMsg, 'success');
+      setIsFetching(false);
+      return;
+    }
+
+    // Physical ESP32 connection execution (non-Firestore mode)
+    if (!settings.espIpAddress) {
+      addLog('Command applied locally. (No physical ESP32 IP address configured for direct API).', 'warning');
+      setIsFetching(false);
+      return;
+    }
+
+    const cleanIp = settings.espIpAddress.replace(/^https?:\/\//i, '').trim();
+    
+    try {
+      const startTime = performance.now();
+      
+      // Send separate API requests for each changed control to ESP32
+      if (updates.auto !== undefined) {
+        const url = `http://${cleanIp}/auto?enabled=${updates.auto}`;
+        await fetch(url, { mode: 'no-cors' });
+      }
+      if (updates.led !== undefined) {
+        const url = `http://${cleanIp}/led?value=${updates.led}`;
+        await fetch(url, { mode: 'no-cors' });
+      }
+      if (updates.fan !== undefined) {
+        const url = `http://${cleanIp}/fan?value=${updates.fan}`;
+        await fetch(url, { mode: 'no-cors' });
+      }
+
+      const endTime = performance.now();
+      setLatency(Math.round(endTime - startTime));
+      addLog(logMsg, 'success');
+    } catch (err) {
+      console.error('Physical send error:', err instanceof Error ? err.message : String(err));
+      addLog(`Failed to communicate with ESP32 at: ${cleanIp}. (Check network / CORS policy).`, 'alert');
+      setIsConnected(false);
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   return (

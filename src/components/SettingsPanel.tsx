@@ -82,28 +82,50 @@ const char* projectId = "${firebaseConfig.projectId || 'kitten-smarthome'}";
 const char* databaseId = "${settings.firestoreDatabaseTarget === 'custom' ? (firebaseConfig.firestoreDatabaseId || '(default)') : '(default)'}";
 
 // Hardware Pins (Adjust to your actual wiring)
-const int LED_PIN = 12;      // PWM Pin for LED Brightness
+const int RED_PIN = 12;      // GPIO pin for Red channel
+const int GREEN_PIN = 14;    // GPIO pin for Green channel
+const int BLUE_PIN = 26;     // GPIO pin for Blue channel
 const int FAN_PIN = 13;      // Digital Pin for Fan ON/OFF Control (Connected to L298N IN1)
 const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
 const int MOTION_PIN = 27;   // PIR Motion sensor pin
 
 /* 
-  L298N MOTOR DRIVER WIRING (Binary Switch Mode):
-  1. ENA Jumper -> KEEP IN PLACE (ties ENA to 5V and keeps Channel A active)
-  2. IN1 Pin    -> Connect to ESP32 Pin 13 (FAN_PIN)
-  3. IN2 Pin    -> Connect to GND (either ESP32 GND or L298N GND terminal)
-  4. OUT1 & OUT2 -> Connect your DC Fan terminals
-  5. L298N GND  -> Connect to ESP32 GND AND external power supply negative (-) terminal (CRITICAL!)
-  6. L298N 12V  -> Connect to positive (+) terminal of external power supply (e.g. 9V/12V adapter)
+  RGB LED WIRING DIAGRAM:
+  An RGB LED has 4 pins. Pin 1 is Red, Pin 2 is Common (longest leg), Pin 3 is Green, Pin 4 is Blue.
+  
+  Option 1: Common Cathode RGB LED (Common Ground) - DEFAULT IN THIS CODE
+  1. RED pin (Pin 1)   -> 220 Ohm Resistor -> Connect to ESP32 Pin 12 (RED_PIN)
+  2. COMMON pin (Pin 2) -> Connect directly to ESP32 GND
+  3. GREEN pin (Pin 3) -> 220 Ohm Resistor -> Connect to ESP32 Pin 14 (GREEN_PIN)
+  4. BLUE pin (Pin 4)  -> 220 Ohm Resistor -> Connect to ESP32 Pin 26 (BLUE_PIN)
+  
+  Option 2: Common Anode RGB LED (Common VCC)
+  1. RED pin (Pin 1)   -> 220 Ohm Resistor -> Connect to ESP32 Pin 12 (RED_PIN)
+  2. COMMON pin (Pin 2) -> Connect directly to ESP32 3.3V (or 5V)
+  3. GREEN pin (Pin 3) -> 220 Ohm Resistor -> Connect to ESP32 Pin 14 (GREEN_PIN)
+  4. BLUE pin (Pin 4)  -> 220 Ohm Resistor -> Connect to ESP32 Pin 26 (BLUE_PIN)
+  *Note: For Common Anode, the signals must be inverted! (Uncomment the inversion line in setRGBColor() below).
 */
 
 #define DHTTYPE DHT11
 DHT dht(DHT_PIN, DHTTYPE);
 
 // Global State Variables (Synchronized with Firestore)
-int ledVal = 128;            // Current LED brightness PWM level (0-255)
+int ledVal = 128;            // Current LED brightness level (0-255)
 int fanVal = 0;              // Current Fan state (0 = OFF, 255 = ON)
 bool autoMode = true;        // Automation override flag
+
+// Helper function to write color values to RGB channels
+void setRGBColor(int r, int g, int b) {
+  // UNCOMMENT the following 3 lines if you are using a COMMON ANODE RGB LED:
+  // r = 255 - r;
+  // g = 255 - g;
+  // b = 255 - b;
+
+  analogWrite(RED_PIN, constrain(r, 0, 255));
+  analogWrite(GREEN_PIN, constrain(g, 0, 255));
+  analogWrite(BLUE_PIN, constrain(b, 0, 255));
+}
 
 // Timing Trackers
 unsigned long lastTelemetryTime = 0;
@@ -114,7 +136,9 @@ const unsigned long controlInterval = 2000;  // Fetch controls every 2 seconds
 void setup() {
   Serial.begin(115200);
   
-  pinMode(LED_PIN, OUTPUT);
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BLUE_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(MOTION_PIN, INPUT);
 
@@ -128,7 +152,7 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi Connected!");
+  Serial.println("\\nWiFi Connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
@@ -202,7 +226,7 @@ void fetchControlState() {
         autoMode = doc["fields"]["auto"]["booleanValue"].as<bool>();
       }
 
-      Serial.printf("Decoded - LED Duty: %d/255, Fan State: %s, Auto: %s\n", 
+      Serial.printf("Decoded - LED Duty: %d/255, Fan State: %s, Auto: %s\\n", 
                     ledVal, (fanVal > 0) ? "ON" : "OFF", autoMode ? "ON" : "OFF");
 
       // Local temperature/occupancy automation if autoMode is active
@@ -225,7 +249,44 @@ void fetchControlState() {
       }
 
       // Set hardware outputs
-      analogWrite(LED_PIN, constrain(ledVal, 0, 255));
+      if (autoMode) {
+        // Temperature-based RGB feedback in Auto mode (with motion override)
+        float t = dht.readTemperature();
+        if (!isnan(t) && ledVal > 0) {
+          if (t >= 28.0) {
+            // Hot environment -> Glow Red
+            setRGBColor(ledVal, 0, 0);
+          } else if (t < 25.0) {
+            // Cold environment -> Glow Blue
+            setRGBColor(0, 0, ledVal);
+          } else {
+            // Comfortable environment -> Glow warm Green
+            setRGBColor(0, ledVal, 0);
+          }
+        } else {
+          setRGBColor(0, 0, 0); // Off if motion inactive or sensor failed
+        }
+      } else {
+        // Manual control: map preset brightness levels to custom color palettes
+        if (ledVal == 0) {
+          setRGBColor(0, 0, 0); // Off
+        } else if (ledVal == 20) {
+          // Movie Preset (Deep Indigo Glow)
+          setRGBColor(10, 0, 20);
+        } else if (ledVal == 255) {
+          // Gaming Preset (Neon Magenta)
+          setRGBColor(128, 0, 255);
+        } else if (ledVal == 150) {
+          // Study Preset (Daylight White)
+          setRGBColor(150, 150, 150);
+        } else {
+          // Standard manual adjustment (Scalable warm amber light)
+          int r = ledVal;
+          int g = (ledVal * 75) / 100;
+          int b = (ledVal * 35) / 100;
+          setRGBColor(r, g, b);
+        }
+      }
       // Write to Fan as a simple binary Digital HIGH/LOW to prevent startup stalling and core incompatibilities
       digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
     } else {
@@ -233,7 +294,7 @@ void fetchControlState() {
       Serial.println(error.c_str());
     }
   } else {
-    Serial.printf("GET control state failed, HTTP error: %d\n", httpResponseCode);
+    Serial.printf("GET control state failed, HTTP error: %d\\n", httpResponseCode);
   }
   http.end();
 }
@@ -264,7 +325,7 @@ void publishTelemetry() {
   }
 
   // Display values in the Serial Monitor
-  Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\n", 
+  Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\\n", 
                 tempVal, motionVal ? "DETECTED" : "CLEAR");
 
   // Get current UTC time for Firestore timestamp
@@ -299,7 +360,7 @@ void publishTelemetry() {
   if (httpResponseCode == 200 || httpResponseCode == 201) {
     Serial.println("[Firestore] Telemetry updated successfully!");
   } else {
-    Serial.printf("POST telemetry failed, HTTP: %d\n", httpResponseCode);
+    Serial.printf("POST telemetry failed, HTTP: %d\\n", httpResponseCode);
   }
   http.end();
 }`;
