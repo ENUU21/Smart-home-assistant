@@ -74,6 +74,8 @@ export default function VoiceAssistant({
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'free-stt' | 'gemini-ai'>('free-stt');
   const [textCommand, setTextCommand] = useState('');
+  const [isConstantListening, setIsConstantListening] = useState<boolean>(false);
+  const isConstantListeningRef = useRef<boolean>(false);
 
   const recognitionRef = useRef<any>(null);
 
@@ -164,6 +166,35 @@ export default function VoiceAssistant({
     return { updates, reply };
   };
 
+  // Synchronize continuous listening ref and trigger restart/stop controls
+  useEffect(() => {
+    isConstantListeningRef.current = isConstantListening;
+    if (isConstantListening) {
+      if (voiceStatus === 'IDLE') {
+        if (recognitionRef.current) {
+          try {
+            onVoiceTrigger();
+            recognitionRef.current.start();
+            setVoiceStatus('LISTENING');
+          } catch (err) {
+            console.warn('Failed to start speech recognition for constant listening:', err);
+          }
+        } else {
+          setAssistantReply('⚠️ Speech recognition not supported or not loaded in this browser.');
+          setIsConstantListening(false);
+        }
+      }
+    } else {
+      if (voiceStatus === 'LISTENING' && recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (err) {
+          console.warn('Failed to stop speech recognition:', err);
+        }
+      }
+    }
+  }, [isConstantListening]);
+
   // Initialize Web Speech Recognition
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -175,46 +206,106 @@ export default function VoiceAssistant({
 
       rec.onstart = () => {
         setVoiceStatus('LISTENING');
-        setLastCommand('Listening to your voice command...');
-        setAssistantReply('Speak now! Say a command like "set fan to 255" or "turn fan off".');
+        if (isConstantListeningRef.current) {
+          setLastCommand('Kitten listener is active...');
+          setAssistantReply('Listening constantly! Start your command with "kitten" (e.g. "kitten turn fan on").');
+        } else {
+          setLastCommand('Listening to your voice command...');
+          setAssistantReply('Speak now! Say a command like "set fan to 255" or "turn fan off".');
+        }
       };
 
       rec.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
+        const transcript = event.results[0][0].transcript.trim();
         setLastCommand(`"${transcript}"`);
-        setVoiceStatus('PROCESSING');
-        setAssistantReply('Parsing text command locally...');
 
-        setTimeout(() => {
-          const { updates, reply } = parseTextCommand(transcript);
-          setAssistantReply(reply);
-          
-          onCommandTriggered(
-            updates,
-            `Local Speech: "${transcript}". Reply: "${reply}"`
-          );
+        if (isConstantListeningRef.current) {
+          const lowerTranscript = transcript.toLowerCase();
+          if (lowerTranscript.startsWith('kitten')) {
+            // Strip "kitten" (6 letters) and clean remaining whitespace/symbols
+            const commandText = transcript.slice(6).trim().replace(/^[:,\s]+/, '');
+            
+            if (commandText) {
+              setVoiceStatus('PROCESSING');
+              setAssistantReply(`Wake-word detected! Processing: "${commandText}"`);
 
-          // Music triggers based on parsing
-          if (transcript.toLowerCase().includes('sleep')) {
-            playSong(SONGS[1]);
-          } else if (transcript.toLowerCase().includes('gaming') || transcript.toLowerCase().includes('game')) {
-            playSong(SONGS[2]);
-          } else if (transcript.toLowerCase().includes('music') || transcript.toLowerCase().includes('play')) {
-            playSong(SONGS[0]);
-          } else if (transcript.toLowerCase().includes('stop') && transcript.toLowerCase().includes('music')) {
-            stopSong();
+              setTimeout(() => {
+                const { updates, reply } = parseTextCommand(commandText);
+                setAssistantReply(`[Kitten] ${reply}`);
+                
+                onCommandTriggered(
+                  updates,
+                  `Local Speech (Wake-word): "${commandText}". Reply: "${reply}"`
+                );
+
+                // Music triggers based on parsing
+                if (commandText.toLowerCase().includes('sleep')) {
+                  playSong(SONGS[1]);
+                } else if (commandText.toLowerCase().includes('gaming') || commandText.toLowerCase().includes('game')) {
+                  playSong(SONGS[2]);
+                } else if (commandText.toLowerCase().includes('music') || commandText.toLowerCase().includes('play')) {
+                  playSong(SONGS[0]);
+                } else if (commandText.toLowerCase().includes('stop') && commandText.toLowerCase().includes('music')) {
+                  stopSong();
+                }
+
+                setVoiceStatus('IDLE');
+              }, 800);
+            } else {
+              setAssistantReply('Wake-word "kitten" detected, but no command followed.');
+            }
+          } else {
+            setAssistantReply(`Ignored (Does not start with "kitten"): "${transcript}"`);
           }
+        } else {
+          setVoiceStatus('PROCESSING');
+          setAssistantReply('Parsing text command locally...');
 
-          setVoiceStatus('IDLE');
-        }, 800);
+          setTimeout(() => {
+            const { updates, reply } = parseTextCommand(transcript);
+            setAssistantReply(reply);
+            
+            onCommandTriggered(
+              updates,
+              `Local Speech: "${transcript}". Reply: "${reply}"`
+            );
+
+            // Music triggers based on parsing
+            if (transcript.toLowerCase().includes('sleep')) {
+              playSong(SONGS[1]);
+            } else if (transcript.toLowerCase().includes('gaming') || transcript.toLowerCase().includes('game')) {
+              playSong(SONGS[2]);
+            } else if (transcript.toLowerCase().includes('music') || transcript.toLowerCase().includes('play')) {
+              playSong(SONGS[0]);
+            } else if (transcript.toLowerCase().includes('stop') && transcript.toLowerCase().includes('music')) {
+              stopSong();
+            }
+
+            setVoiceStatus('IDLE');
+          }, 800);
+        }
       };
 
       rec.onerror = (event: any) => {
         console.warn('Speech recognition status warning:', event.error);
+        
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setAssistantReply('⚠️ Microphone permission denied or blocked. Disabling continuous mode.');
+          setIsConstantListening(false);
+          isConstantListeningRef.current = false;
+        }
+
+        if (isConstantListeningRef.current) {
+          if (event.error === 'no-speech') {
+            // Silence warnings in constant mode can be ignored
+            return;
+          }
+        }
+
         if (event.error === 'no-speech') {
           setAssistantReply('No speech detected. Click the Mic to try again.');
         } else if (event.error === 'network') {
-          setAssistantReply('⚠️ Speech Recognition Network Error! \n\nThis happens because standard browsers (like Chrome) send your audio to Google\'s servers for transcription. Common fixes:\n1. Brave Browser: Brave blocks Google services by default. Go to brave://settings/system and turn ON "Use Google services for speech recognition and synthesis", then reload.\n2. Permissions: Ensure microphone permission is allowed in your address bar.\n3. HTTPS: Ensure your site is served over secure HTTPS (otherwise the mic API is blocked).\n4. Try Chrome/Edge or use the Keyboard Console below!');
+          setAssistantReply('⚠️ Speech Recognition Network Error! \n\nCheck browser settings or permissions.');
         } else {
           setAssistantReply(`Speech recognition error: ${event.error}`);
         }
@@ -223,6 +314,19 @@ export default function VoiceAssistant({
 
       rec.onend = () => {
         setVoiceStatus('IDLE');
+        if (isConstantListeningRef.current) {
+          // Restart after a small delay to prevent rapid spinning
+          setTimeout(() => {
+            if (isConstantListeningRef.current) {
+              try {
+                rec.start();
+                setVoiceStatus('LISTENING');
+              } catch (err) {
+                console.warn('Auto-restart speech recognition failed:', err);
+              }
+            }
+          }, 400);
+        }
       };
 
       recognitionRef.current = rec;
@@ -598,6 +702,10 @@ export default function VoiceAssistant({
   };
 
   const handleMicClick = () => {
+    if (isConstantListening) {
+      setIsConstantListening(false);
+      return;
+    }
     if (voiceStatus === 'LISTENING') {
       if (voiceMode === 'free-stt') {
         if (recognitionRef.current) {
@@ -663,6 +771,37 @@ export default function VoiceAssistant({
             </button>
           </div>
 
+          {/* Constant Wake-Word Listener Toggle */}
+          <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-900 bg-slate-950/20">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Radio className={`w-3.5 h-3.5 ${isConstantListening ? 'text-cyan-400 animate-pulse' : 'text-slate-500'}`} />
+                Constant "Kitten" Listening
+              </span>
+              <span className="text-[9.5px] text-slate-500 font-mono">
+                Scans voice continuously. Only processes commands starting with "kitten".
+              </span>
+            </div>
+            <button
+              id="btn-constant-listening-toggle"
+              onClick={() => {
+                if (!isConstantListening) {
+                  setVoiceMode('free-stt');
+                }
+                setIsConstantListening(!isConstantListening);
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                isConstantListening ? 'bg-cyan-500' : 'bg-slate-800'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                  isConstantListening ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
           {/* State Display, Mic Control, & Waveform */}
           <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-900 bg-slate-950/40">
             <div className="flex items-center gap-3">
@@ -695,7 +834,7 @@ export default function VoiceAssistant({
                         : 'text-slate-400'
                   }`}
                 >
-                  {voiceStatus === 'LISTENING' ? 'RECORDING MIC...' : voiceStatus}
+                  {voiceStatus === 'LISTENING' ? (isConstantListening ? 'KITTEN EARS ACTIVE...' : 'RECORDING MIC...') : voiceStatus}
                 </span>
               </div>
             </div>
