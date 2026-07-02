@@ -93,6 +93,12 @@ const int MOTION_PIN = 27;   // PIR Motion sensor pin
   connected them through a 220 Ohm resistor to a single ESP32 Pin (GPIO 12).
   
   This allows controlling the light intensity of the combined colors uniformly from a single pin!
+
+  PIR MOTION SENSOR (HC-SR501 / AM312) WIRING DIAGRAM:
+  A standard PIR sensor has 3 pins: VCC, OUT, and GND.
+  1. VCC (Power)      -> Connect to ESP32 Vin / 5V pin (or 3.3V pin for AM312)
+  2. OUT (Signal)     -> Connect directly to ESP32 GPIO 27 (MOTION_PIN)
+  3. GND (Ground)     -> Connect directly to ESP32 GND
 */
 
 #define DHTTYPE DHT11
@@ -116,14 +122,9 @@ void setLEDIntensity(int val) {
   // Invert signal if using Common Anode LED
   int outVal = IS_COMMON_ANODE ? (255 - val) : val;
 
-  // Use direct digital writes for boundaries (0 and 255) to guarantee absolute ON/OFF states and bypass ESP32 PWM driver glitches
-  if (outVal <= 0) {
-    digitalWrite(LED_PIN, LOW);
-  } else if (outVal >= 255) {
-    digitalWrite(LED_PIN, HIGH);
-  } else {
-    analogWrite(LED_PIN, outVal);
-  }
+  // Always use analogWrite on ESP32 to update PWM duty cycle correctly.
+  // Using digitalWrite after analogWrite is ignored on ESP32 because the PWM driver remains attached.
+  analogWrite(LED_PIN, outVal);
 }
 
 // Timing Trackers
