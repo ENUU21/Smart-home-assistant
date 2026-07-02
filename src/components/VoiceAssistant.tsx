@@ -91,7 +91,38 @@ export default function VoiceAssistant({
     const updates: Partial<ESP32Data> = { voice: false };
     let reply = "I parsed your command.";
     
-    if (normalized.includes("fan") || normalized.includes("cooler") || normalized.includes("ventilation")) {
+    // 1. Match high-priority presets and system automation modes first
+    if (normalized.includes("movie")) {
+      updates.led = 20;
+      updates.fan = 0;
+      updates.auto = false;
+      reply = "Activating movie night preset: Lights dimmed low, ventilation fan silenced.";
+    } else if (normalized.includes("gaming") || normalized.includes("game")) {
+      updates.led = 255;
+      updates.fan = 255;
+      updates.auto = false;
+      reply = "Activating gaming preset: Full LED glow and maximum fan power.";
+    } else if (normalized.includes("sleep")) {
+      updates.led = 0;
+      updates.fan = 0;
+      updates.auto = false;
+      reply = "Activating bedtime sleep preset: LED off and fan shut down.";
+    } else if (normalized.includes("study") || normalized.includes("work")) {
+      updates.led = 150;
+      updates.fan = 80;
+      updates.auto = false;
+      reply = "Activating productive study preset: Focus lights at 150, gentle ventilation fan.";
+    } else if (normalized.includes("auto") || normalized.includes("automatic") || normalized.includes("manual")) {
+      if (normalized.includes("off") || normalized.includes("disable") || normalized.includes("manual")) {
+        updates.auto = false;
+        reply = "Switching to manual microclimate control mode.";
+      } else {
+        updates.auto = true;
+        reply = "Enabling automatic microclimate system automation.";
+      }
+    }
+    // 2. Fall back to direct hardware control statements
+    else if (normalized.includes("fan") || normalized.includes("cooler") || normalized.includes("ventilation")) {
       // Find the first number in the string
       const numberMatch = normalized.match(/\d+/);
       if (numberMatch) {
@@ -131,37 +162,10 @@ export default function VoiceAssistant({
       } else {
         reply = "I heard you mention the light, but couldn't detect a level. Try 'turn light off' or 'set LED to 150'.";
       }
-    } else if (normalized.includes("auto") || normalized.includes("automatic")) {
-      if (normalized.includes("on") || normalized.includes("enable") || normalized.includes("activate")) {
-        updates.auto = true;
-        reply = "Enabling automatic microclimate system automation.";
-      } else if (normalized.includes("off") || normalized.includes("disable") || normalized.includes("manual")) {
-        updates.auto = false;
-        reply = "Switching to manual microclimate control mode.";
-      }
-    } else if (normalized.includes("movie")) {
-      updates.led = 20;
-      updates.fan = 0;
-      updates.auto = false;
-      reply = "Activating movie night preset: Lights dimmed low, ventilation fan silenced.";
-    } else if (normalized.includes("gaming") || normalized.includes("game")) {
-      updates.led = 255;
-      updates.fan = 255;
-      updates.auto = false;
-      reply = "Activating gaming preset: Full LED glow and maximum fan power.";
-    } else if (normalized.includes("sleep")) {
-      updates.led = 0;
-      updates.fan = 0;
-      updates.auto = false;
-      reply = "Activating bedtime sleep preset: LED off and fan shut down.";
-    } else if (normalized.includes("study") || normalized.includes("work")) {
-      updates.led = 150;
-      updates.fan = 80;
-      updates.auto = false;
-      reply = "Activating productive study preset: Focus lights at 150, gentle ventilation fan.";
     } else {
       reply = "Local command received but not matched. Try saying 'turn fan on', 'set fan to 255', or 'movie mode'.";
     }
+
 
     return { updates, reply };
   };
