@@ -210,11 +210,11 @@ export default function VoiceAssistant({
       };
 
       rec.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
+        console.warn('Speech recognition status warning:', event.error);
         if (event.error === 'no-speech') {
           setAssistantReply('No speech detected. Click the Mic to try again.');
         } else if (event.error === 'network') {
-          setAssistantReply('⚠️ Network connection issue: The browser Web Speech API failed to connect to Google\'s transcription servers. This often occurs inside sandboxed iframes or restricted corporate networks. Please use the simulated preset buttons or type your command in the input box below!');
+          setAssistantReply('⚠️ Speech Recognition Network Error! \n\nThis happens because standard browsers (like Chrome) send your audio to Google\'s servers for transcription. Common fixes:\n1. Brave Browser: Brave blocks Google services by default. Go to brave://settings/system and turn ON "Use Google services for speech recognition and synthesis", then reload.\n2. Permissions: Ensure microphone permission is allowed in your address bar.\n3. HTTPS: Ensure your site is served over secure HTTPS (otherwise the mic API is blocked).\n4. Try Chrome/Edge or use the Keyboard Console below!');
         } else {
           setAssistantReply(`Speech recognition error: ${event.error}`);
         }
