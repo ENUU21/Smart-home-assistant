@@ -110,6 +110,11 @@ const int MOTION_PIN = 27;   // PIR Motion sensor pin
 #define DHTTYPE DHT11
 DHT dht(DHT_PIN, DHTTYPE);
 
+// Choose your RGB LED type:
+// Set to true if you have a Common Anode RGB LED (longest leg connected to VCC / 3.3V or 5V)
+// Set to false if you have a Common Cathode RGB LED (longest leg connected to GND)
+const bool IS_COMMON_ANODE = false;
+
 // Global State Variables (Synchronized with Firestore)
 int ledVal = 128;            // Current LED brightness level (0-255)
 int fanVal = 0;              // Current Fan state (0 = OFF, 255 = ON)
@@ -117,14 +122,40 @@ bool autoMode = true;        // Automation override flag
 
 // Helper function to write color values to RGB channels
 void setRGBColor(int r, int g, int b) {
-  // UNCOMMENT the following 3 lines if you are using a COMMON ANODE RGB LED:
-  // r = 255 - r;
-  // g = 255 - g;
-  // b = 255 - b;
+  // Constrain inputs to standard PWM range
+  r = constrain(r, 0, 255);
+  g = constrain(g, 0, 255);
+  b = constrain(b, 0, 255);
 
-  analogWrite(RED_PIN, constrain(r, 0, 255));
-  analogWrite(GREEN_PIN, constrain(g, 0, 255));
-  analogWrite(BLUE_PIN, constrain(b, 0, 255));
+  // Invert signals if using Common Anode LED
+  int outR = IS_COMMON_ANODE ? (255 - r) : r;
+  int outG = IS_COMMON_ANODE ? (255 - g) : g;
+  int outB = IS_COMMON_ANODE ? (255 - b) : b;
+
+  // Use direct digital writes for boundaries (0 and 255) to guarantee absolute ON/OFF states and bypass ESP32 PWM driver glitches
+  if (outR <= 0) {
+    digitalWrite(RED_PIN, LOW);
+  } else if (outR >= 255) {
+    digitalWrite(RED_PIN, HIGH);
+  } else {
+    analogWrite(RED_PIN, outR);
+  }
+
+  if (outG <= 0) {
+    digitalWrite(GREEN_PIN, LOW);
+  } else if (outG >= 255) {
+    digitalWrite(GREEN_PIN, HIGH);
+  } else {
+    analogWrite(GREEN_PIN, outG);
+  }
+
+  if (outB <= 0) {
+    digitalWrite(BLUE_PIN, LOW);
+  } else if (outB >= 255) {
+    digitalWrite(BLUE_PIN, HIGH);
+  } else {
+    analogWrite(BLUE_PIN, outB);
+  }
 }
 
 // Timing Trackers
