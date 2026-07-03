@@ -122,74 +122,50 @@ export default function VoiceAssistant({
       }
     }
     // 2. Fall back to direct hardware control statements
-    else {
-      const hasLightWord = normalized.includes("light") || normalized.includes("lights") || normalized.includes("led");
-      const hasFanWord = normalized.includes("fan") || normalized.includes("cooler") || normalized.includes("ventilation");
-
-      if (hasLightWord || hasFanWord) {
-        const replies: string[] = [];
-
-        if (hasLightWord) {
-          // Check for specific number following light keyword, or fall back to any number
-          const lightNumberMatch = normalized.match(/(?:led|light|lights)\D*(\d+)/) || normalized.match(/\d+/);
-          if (lightNumberMatch) {
-            const percent = parseInt(lightNumberMatch[1] || lightNumberMatch[0], 10);
-            const pwmVal = Math.round((percent / 100) * 255);
-            const constrainedVal = Math.min(255, Math.max(0, pwmVal));
-            updates.led = constrainedVal;
-            updates.auto = false;
-            replies.push(`Setting the light brightness to ${percent}% (${constrainedVal}/255) [Manual Mode].`);
-          } else if (normalized.includes("on")) {
-            updates.led = 255;
-            updates.auto = false;
-            replies.push("Turning the lighting array ON [Maximum glow].");
-          } else if (normalized.includes("off")) {
-            updates.led = 0;
-            updates.auto = false;
-            replies.push("Turning the lighting array OFF.");
-          } else {
-            replies.push("I heard you mention the light, but couldn't detect a percentage or state.");
-          }
-        }
-
-        if (hasFanWord) {
-          // Check for specific number following fan keyword, or fall back to any number (if not already used by light)
-          let fanNumberMatch = normalized.match(/(?:fan|cooler|ventilation)\D*(\d+)/);
-          if (!fanNumberMatch) {
-            const generalMatch = normalized.match(/\d+/);
-            if (generalMatch) {
-              const lightNumberMatch = normalized.match(/(?:led|light|lights)\D*(\d+)/);
-              if (!lightNumberMatch || generalMatch[0] !== (lightNumberMatch[1] || lightNumberMatch[0])) {
-                fanNumberMatch = generalMatch;
-              }
-            }
-          }
-
-          if (fanNumberMatch) {
-            const percent = parseInt(fanNumberMatch[1] || fanNumberMatch[0], 10);
-            const pwmVal = Math.round((percent / 100) * 255);
-            const constrainedVal = Math.min(255, Math.max(0, pwmVal));
-            updates.fan = constrainedVal;
-            updates.auto = false;
-            replies.push(`Setting the ventilation fan power level to ${percent}% (${constrainedVal}/255) [Manual Mode].`);
-          } else if (normalized.includes("on")) {
-            updates.fan = 255;
-            updates.auto = false;
-            replies.push("Turning the ventilation fan ON [Manual Mode].");
-          } else if (normalized.includes("off")) {
-            updates.fan = 0;
-            updates.auto = false;
-            replies.push("Turning the ventilation fan OFF.");
-          } else {
-            replies.push("I heard you mention the fan, but couldn't detect a percentage or state.");
-          }
-        }
-
-        reply = replies.join(" ");
+    else if (normalized.includes("fan") || normalized.includes("cooler") || normalized.includes("ventilation")) {
+      // Find the first number in the string
+      const numberMatch = normalized.match(/\d+/);
+      if (numberMatch) {
+        const val = parseInt(numberMatch[0], 10);
+        // Let's cap at 255
+        const constrainedVal = Math.min(255, Math.max(0, val));
+        updates.fan = constrainedVal;
+        updates.auto = false;
+        reply = `Setting the ventilation fan power level to ${constrainedVal} [Manual Mode].`;
+      } else if (normalized.includes("on") || normalized.includes("active") || normalized.includes("start") || normalized.includes("run")) {
+        updates.fan = 255; // Full power digital switch
+        updates.auto = false;
+        reply = "Turning the ventilation fan ON [Manual Mode].";
+      } else if (normalized.includes("off") || normalized.includes("stop") || normalized.includes("standby") || normalized.includes("shut")) {
+        updates.fan = 0;
+        updates.auto = false;
+        reply = "Turning the ventilation fan OFF.";
       } else {
-        reply = "Voice command received but not matched. Try saying 'turn fan on', 'set fan to 50%', or 'movie mode'.";
+        reply = "I heard you mention the fan, but couldn't detect a command. Try 'turn fan on' or 'set fan to 255'.";
       }
+    } else if (normalized.includes("led") || normalized.includes("light") || normalized.includes("brightness") || normalized.includes("glow")) {
+      const numberMatch = normalized.match(/\d+/);
+      if (numberMatch) {
+        const val = parseInt(numberMatch[0], 10);
+        const constrainedVal = Math.min(255, Math.max(0, val));
+        updates.led = constrainedVal;
+        updates.auto = false;
+        reply = `Setting the light brightness level to ${constrainedVal} (${Math.round((constrainedVal/255)*100)}%) [Manual Mode].`;
+      } else if (normalized.includes("on")) {
+        updates.led = 255;
+        updates.auto = false;
+        reply = "Turning the lighting array ON [Maximum glow].";
+      } else if (normalized.includes("off")) {
+        updates.led = 0;
+        updates.auto = false;
+        reply = "Turning the lighting array OFF.";
+      } else {
+        reply = "I heard you mention the light, but couldn't detect a level. Try 'turn light off' or 'set LED to 150'.";
+      }
+    } else {
+      reply = "Local command received but not matched. Try saying 'turn fan on', 'set fan to 255', or 'movie mode'.";
     }
+
 
     return { updates, reply };
   };
