@@ -59,11 +59,19 @@ export default function SettingsPanel({ settings, onSaveSettings, onClose }: Set
   };
 
   const esp32Code = `/*
-  Kitten Smart Home - ESP32 Firestore Integration Sketch (DHT11 Version)
-  Requires the following libraries in Arduino IDE:
-  1. "ArduinoJson" by Benoit Blanchon (via Library Manager)
-  2. "DHT sensor library" by Adafruit (via Library Manager)
-  3. "Adafruit Unified Sensor" by Adafruit (via Library Manager, required by DHT library)
+  ========================================================================================
+  KITTEN SMART HOME - ESP32 COMPACT SKETCH (Voice & Sensor Edition)
+  
+  ⚠️ IMPORTANT - CHOOSE LARGE PARTITION TABLE TO PREVENT 'SKETCH TOO BIG' ERROR:
+  Because compiling both WiFi, HTTP Secure client, and Bluetooth A2DP audio requires 
+  large libraries, please make the following selection in your Arduino IDE:
+  👉 Tools > Partition Scheme > Select "Huge APP (3MB No OTA)" or "Minimal SPIFFS"
+  ========================================================================================
+  Libraries required:
+  1. "ArduinoJson" (Benoit Blanchon)
+  2. "DHT sensor library" (Adafruit)
+  3. "Adafruit Unified Sensor" (Adafruit)
+  4. "ESP32-A2DP" (Phil Schatzmann) - No extra AudioTools needed!
 */
 
 #include <WiFi.h>
@@ -72,148 +80,269 @@ export default function SettingsPanel({ settings, onSaveSettings, onClose }: Set
 #include <ArduinoJson.h>
 #include <DHT.h>
 #include <time.h>
+#include <driver/i2s.h>
 
-// WiFi Credentials
+// FEATURE FLAGS (Turn ON/OFF features easily for modular testing!)
+#define ENABLE_SPEAKER false     // Set to true once you connect the MAX98357A speaker! Set to false for mic-only testing.
+#define CONTINUOUS_LISTENING true
+#define USE_SOUND_THRESHOLD true
+const int SOUND_PEAK_THRESHOLD = 4500; // Peak volume threshold to start recording
+
+#if ENABLE_SPEAKER
+#define A2DP_LEGACY_I2S_SUPPORT 1
+#define A2DP_I2S_AUDIOTOOLS 0
+#include "BluetoothA2DPSink.h"
+#endif
+
+// Hardware Pin Configuration
 const char* ssid = "ASUS_X00RD";
 const char* password = "6172839405";
-
-// Firebase Configurations
 const char* projectId = "${firebaseConfig.projectId || 'kitten-smarthome'}";
 const char* databaseId = "${settings.firestoreDatabaseTarget === 'custom' ? (firebaseConfig.firestoreDatabaseId || '(default)') : '(default)'}";
 
-// Hardware Pins (Adjust to your actual wiring)
-const int LED_PIN = 12;      // Single GPIO pin connected to your combined Red, Green, Blue LED legs
-const int FAN_PIN = 13;      // Digital Pin for Fan ON/OFF Control (Connected to L298N IN1)
-const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
-const int MOTION_PIN = 27;   // PIR Motion sensor pin
+const int LED_PIN = 12;
+const int FAN_PIN = 13;
+const int DHT_PIN = 32;
+const int MOTION_PIN = 27;
 
-/* 
-  COMBINED RGB LED / MONOCHROME LED WIRING DIAGRAM:
-  You have connected all three RGB legs (Red, Green, Blue) of your LED together, and 
-  connected them through a 220 Ohm resistor to a single ESP32 Pin (GPIO 12).
-  
-  This allows controlling the light intensity of the combined colors uniformly from a single pin!
-
-  PIR MOTION SENSOR (HC-SR501 / AM312) WIRING DIAGRAM:
-  A standard PIR sensor has 3 pins: VCC, OUT, and GND.
-  1. VCC (Power)      -> Connect to ESP32 Vin / 5V pin (or 3.3V pin for AM312)
-  2. OUT (Signal)     -> Connect directly to ESP32 GPIO 27 (MOTION_PIN)
-  3. GND (Ground)     -> Connect directly to ESP32 GND
-*/
+const int I2S_SCK = 26;          // SCK/BCLK pin (Shared if using both mic & speaker)
+const int I2S_WS = 25;           // WS/LRC pin (Shared if using both mic & speaker)
+const int I2S_SD = 33;           // Mic Data Out (DOUT)
+const int I2S_SPEAKER_DATA = 22; // Speaker Data In (DIN)
 
 #define DHTTYPE DHT11
 DHT dht(DHT_PIN, DHTTYPE);
 
-// Choose your LED type:
-// Set to true if you have a Common Anode LED setup (longest leg connected to VCC)
-// Set to false if you have a Common Cathode LED setup (longest leg connected to GND)
-const bool IS_COMMON_ANODE = false;
+const int SAMPLE_RATE = 16000;
+const int RECORD_TIME_SECS = 2;
+const int BUFFER_SIZE = SAMPLE_RATE * RECORD_TIME_SECS;
+int16_t* audioBuffer = NULL;
 
-// Global State Variables (Synchronized with Firestore)
-int ledVal = 128;            // Current LED brightness level (0-255)
-int fanVal = 0;              // Current Fan state (0 = OFF, 255 = ON)
-bool autoMode = true;        // Automation override flag
+int ledVal = 128;
+int fanVal = 0;
+bool autoMode = true;
 
-// Helper function to write intensity value to the single LED channel
-void setLEDIntensity(int val) {
-  // Constrain inputs to standard PWM range (0-255)
-  val = constrain(val, 0, 255);
+#if ENABLE_SPEAKER
+BluetoothA2DPSink a2dp_sink;
+#endif
 
-  // Invert signal if using Common Anode LED
-  int outVal = IS_COMMON_ANODE ? (255 - val) : val;
+unsigned long lastTelemetryTime = 0;
+const unsigned long telemetryInterval = 5000;
+unsigned long lastControlCheckTime = 0;
+const unsigned long controlInterval = 2000;
 
-  // Always use analogWrite on ESP32 to update PWM duty cycle correctly.
-  // Using digitalWrite after analogWrite is ignored on ESP32 because the PWM driver remains attached.
-  analogWrite(LED_PIN, outVal);
+void initMicrophone() {
+  Serial.println("[I2S Mic] Configuring I2S...");
+  Serial.flush();
+  i2s_config_t i2s_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate = SAMPLE_RATE,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 8,
+    .dma_buf_len = 64,
+    .use_apll = false
+  };
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_SCK,
+    .ws_io_num = I2S_WS,
+    .data_out_num = I2S_PIN_NO_CHANGE,
+    .data_in_num = I2S_SD
+  };
+  Serial.println("[I2S Mic] Installing driver for I2S_NUM_1...");
+  Serial.flush();
+  esp_err_t err1 = i2s_driver_install(I2S_NUM_1, &i2s_config, 0, NULL);
+  if (err1 != ESP_OK) {
+    Serial.printf("[ERROR] i2s_driver_install failed: 0x%x\\n", err1);
+    Serial.flush();
+  }
+  
+  Serial.println("[I2S Mic] Setting pins...");
+  Serial.flush();
+  esp_err_t err2 = i2s_set_pin(I2S_NUM_1, &pin_config);
+  if (err2 != ESP_OK) {
+    Serial.printf("[ERROR] i2s_set_pin failed: 0x%x\\n", err2);
+    Serial.flush();
+  }
 }
 
-// Timing Trackers
-unsigned long lastTelemetryTime = 0;
-const unsigned long telemetryInterval = 5000; // Publish telemetry every 5 seconds
-unsigned long lastControlCheckTime = 0;
-const unsigned long controlInterval = 2000;  // Fetch controls every 2 seconds
+void setLEDIntensity(int val) {
+  val = constrain(val, 0, 255);
+  analogWrite(LED_PIN, val);
+}
 
 void setup() {
   Serial.begin(115200);
-  
+  delay(1000); // Give serial monitor time to connect
+  Serial.println("\\n[SYSTEM] ESP32 Booting Up...");
+  Serial.flush();
+
+  Serial.println("[SYSTEM] Initializing Pin Modes...");
   pinMode(LED_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(MOTION_PIN, INPUT);
+  Serial.flush();
 
-  // Initialize DHT sensor
+  Serial.println("[SYSTEM] Allocating Audio Buffer...");
+  Serial.flush();
+  audioBuffer = (int16_t*) malloc(BUFFER_SIZE * sizeof(int16_t));
+  if (audioBuffer == NULL) {
+    Serial.println("[WARNING] Failed to allocate audio buffer (Out of Memory)!");
+  } else {
+    Serial.println("[SYSTEM] Audio buffer allocated successfully.");
+  }
+  Serial.flush();
+
+  Serial.println("[SYSTEM] Initializing DHT Sensor...");
+  Serial.flush();
   dht.begin();
 
-  // Connect to WiFi network
+  Serial.println("[SYSTEM] Initializing I2S Microphone...");
+  Serial.flush();
+  initMicrophone();
+  Serial.println("[SYSTEM] Microphone initialized successfully.");
+  Serial.flush();
+
+#if ENABLE_SPEAKER
+  Serial.println("[SYSTEM] Initializing Bluetooth Speaker...");
+  Serial.flush();
+  // Set Bluetooth speaker pin config directly (Standard ESP32 I2S output - I2S_NUM_0)
+  i2s_pin_config_t my_pin_config = {
+    .bck_io_num = I2S_SCK,
+    .ws_io_num = I2S_WS,
+    .data_out_num = I2S_SPEAKER_DATA,
+    .data_in_num = I2S_PIN_NO_CHANGE
+  };
+  a2dp_sink.set_pin_config(my_pin_config);
+  a2dp_sink.start("ESP32 Bluetooth Speaker");
+  Serial.println("[SYSTEM] Bluetooth Speaker initialized.");
+  Serial.flush();
+#endif
+
+  Serial.print("[SYSTEM] Connecting to WiFi SSID: ");
+  Serial.println(ssid);
+  Serial.flush();
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    Serial.flush();
   }
-  Serial.println("\\nWiFi Connected!");
-  Serial.print("IP Address: ");
+  Serial.println("\\n[SYSTEM] WiFi Connected!");
+  Serial.print("[SYSTEM] IP Address: ");
   Serial.println(WiFi.localIP());
+  Serial.flush();
 
-  // Initialize NTP time with 0 offset (UTC)
+  Serial.println("[SYSTEM] Synchronizing Time...");
+  Serial.flush();
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  Serial.print("Synchronizing time with NTP");
-  struct tm timeinfo;
-  int retry = 0;
-  while (!getLocalTime(&timeinfo) && retry < 15) {
-    delay(500);
-    Serial.print(".");
-    retry++;
-  }
-  Serial.println("");
-  if (getLocalTime(&timeinfo)) {
-    Serial.println("Time synchronized successfully!");
-  } else {
-    Serial.println("Time synchronization failed, using fallback.");
-  }
+  Serial.println("[SYSTEM] Setup complete!");
+  Serial.flush();
 }
+
+bool checkVoiceTrigger() {
+  if (audioBuffer == NULL) return false;
+  int16_t sampleWindow[128];
+  size_t bytesRead = 0;
+  i2s_read(I2S_NUM_1, (void*)sampleWindow, sizeof(sampleWindow), &bytesRead, 10);
+  int numSamples = bytesRead / sizeof(int16_t);
+  for (int i = 0; i < numSamples; i++) {
+    if (abs(sampleWindow[i]) > SOUND_PEAK_THRESHOLD) return true;
+  }
+  return false;
+}
+
+void recordAudio() {
+  setLEDIntensity(255);
+  delay(150);
+  setLEDIntensity(0);
+  delay(150);
+  setLEDIntensity(255);
+  memset(audioBuffer, 0, BUFFER_SIZE * sizeof(int16_t));
+  size_t bytesRead = 0;
+  i2s_read(I2S_NUM_1, (void*)audioBuffer, BUFFER_SIZE * sizeof(int16_t), &bytesRead, portMAX_DELAY);
+  setLEDIntensity(ledVal);
+}
+
+void recordAndProcessVoice(); // Forward declaration
 
 void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     unsigned long currentMillis = millis();
-
-    // 1. Fetch Control State from Firestore (GET)
+    if (CONTINUOUS_LISTENING && audioBuffer != NULL) {
+      if (!USE_SOUND_THRESHOLD || checkVoiceTrigger()) {
+        recordAndProcessVoice();
+        delay(300);
+      }
+    }
     if (currentMillis - lastControlCheckTime >= controlInterval) {
       lastControlCheckTime = currentMillis;
       fetchControlState();
     }
-
-    // 2. Publish Telemetry to Firestore (POST)
     if (currentMillis - lastTelemetryTime >= telemetryInterval) {
       lastTelemetryTime = currentMillis;
       publishTelemetry();
     }
+  } else {
+    // If WiFi is disconnected, try to reconnect gracefully and print status
+    static unsigned long lastReconnectAttempt = 0;
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastReconnectAttempt > 10000) {
+      Serial.println("[WIFI] Connection lost! Reconnecting...");
+      Serial.flush();
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+      lastReconnectAttempt = currentMillis;
+    }
+    delay(500); // Wait 500ms before checking again
   }
+  delay(10); // ALWAYS add a small delay to prevent Task Watchdog resets!
+}
+
+void recordAndProcessVoice() {
+  recordAudio();
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  String serverUrl = "https://${typeof window !== 'undefined' ? window.location.host : 'localhost:3000'}/api/voice-command-raw";
+  http.begin(client, serverUrl);
+  http.addHeader("Content-Type", "application/octet-stream");
+  int httpResponseCode = http.POST((uint8_t*)audioBuffer, BUFFER_SIZE * sizeof(int16_t));
+  if (httpResponseCode == 200) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(1024);
+    if (!deserializeJson(doc, payload)) {
+      if (doc.containsKey("led")) {
+        ledVal = doc["led"].as<int>();
+        setLEDIntensity(ledVal);
+      }
+      if (doc.containsKey("fan")) {
+        fanVal = doc["fan"].as<int>();
+        digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
+      }
+      if (doc.containsKey("auto")) {
+        autoMode = doc["auto"].as<bool>();
+      }
+    }
+  }
+  http.end();
 }
 
 void fetchControlState() {
   WiFiClientSecure client;
-  client.setInsecure(); // Overpasses SSL validation for direct Google API connection
+  client.setInsecure();
   HTTPClient http;
-  
-  // Construct Firestore REST Document Endpoint
   String url = "https://firestore.googleapis.com/v1/projects/";
   url += projectId;
   url += "/databases/";
   url += databaseId;
   url += "/documents/control/esp32";
-
   http.begin(client, url);
-  int httpResponseCode = http.GET();
-
-  if (httpResponseCode == 200) {
-    String payload = http.getString();
-    
-    // Parse JSON
+  if (http.GET() == 200) {
     DynamicJsonDocument doc(1024);
-    DeserializationError error = deserializeJson(doc, payload);
-
-    if (!error) {
-      // Decode Firestore-specific typed fields safely with fallbacks into global variables
+    if (!deserializeJson(doc, http.getString())) {
       if (doc["fields"]["led"].containsKey("integerValue")) {
         ledVal = doc["fields"]["led"]["integerValue"].as<int>();
       }
@@ -223,77 +352,36 @@ void fetchControlState() {
       if (doc["fields"]["auto"].containsKey("booleanValue")) {
         autoMode = doc["fields"]["auto"]["booleanValue"].as<bool>();
       }
-
-      Serial.printf("Decoded - LED Duty: %d/255, Fan State: %s, Auto: %s\\n", 
-                    ledVal, (fanVal > 0) ? "ON" : "OFF", autoMode ? "ON" : "OFF");
-
-      // Local temperature/occupancy automation if autoMode is active
       if (autoMode) {
         float t = dht.readTemperature();
-        bool m = digitalRead(MOTION_PIN) == HIGH;
         if (!isnan(t)) {
-          t -= 2.0; // Apply offset of -2C
-          // Dynamic thermostat hysteresis (prevents constant rapid switching)
-          if (t >= 28.0) {
-            fanVal = 255; // Full power ON if hot
-          } else if (t < 25.0) {
-            fanVal = 0;   // Shut OFF completely if cool
-          }
+          t -= 2.0;
+          if (t >= 28.0) fanVal = 255;
+          else if (t < 25.0) fanVal = 0;
         }
-        if (m) {
-          ledVal = 120;   // Brighten LED if motion is active
-        } else {
-          ledVal = 0;     // Shut off LED if no motion
-        }
+        ledVal = (digitalRead(MOTION_PIN) == HIGH) ? 120 : 0;
       }
-
-      // Set hardware outputs
-      // Adjust the combined LED intensity through the single LED_PIN
       setLEDIntensity(ledVal);
-      // Write to Fan as a simple binary Digital HIGH/LOW to prevent startup stalling and core incompatibilities
       digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
-    } else {
-      Serial.print("JSON Deserialization failed: ");
-      Serial.println(error.c_str());
     }
-  } else {
-    Serial.printf("GET control state failed, HTTP error: %d\\n", httpResponseCode);
   }
   http.end();
 }
 
 void publishTelemetry() {
   WiFiClientSecure client;
-  client.setInsecure(); // Overpasses SSL validation for direct Google API connection
+  client.setInsecure();
   HTTPClient http;
-  
-  // Construct Firestore REST Post Endpoint
   String url = "https://firestore.googleapis.com/v1/projects/";
   url += projectId;
   url += "/databases/";
   url += databaseId;
   url += "/documents/telemetry";
-
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
-
-  // Read actual DHT11 sensor
-  float tempVal = dht.readTemperature();
-  bool motionVal = digitalRead(MOTION_PIN) == HIGH;
-
-  // Handle sensor reading failures and apply offset
-  if (isnan(tempVal)) {
-    Serial.println("Warning: Failed to read temperature from DHT11 sensor!");
-    tempVal = 24.5; // Fail-safe default or skip publishing
-  } else {
-    tempVal -= 2.0; // Apply offset of -2C
-  }
-
-  // Display values in the Serial Monitor
-  Serial.printf("Sensor Reading - DHT11 Temperature: %.1f C, Motion: %s\\n", 
-                tempVal, motionVal ? "DETECTED" : "CLEAR");
-
-  // Get current UTC time for Firestore timestamp
+  float t = dht.readTemperature();
+  t = isnan(t) ? 24.5 : (t - 2.0);
+  bool m = digitalRead(MOTION_PIN) == HIGH;
   struct tm timeinfo;
   String isoTime = "";
   if (getLocalTime(&timeinfo)) {
@@ -301,32 +389,16 @@ void publishTelemetry() {
     strftime(timeString, sizeof(timeString), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
     isoTime = String(timeString);
   }
-
-  // Build Firestore typed fields structure containing ONLY sensor telemetry
   DynamicJsonDocument doc(1024);
   JsonObject fields = doc.createNestedObject("fields");
-
-  JsonObject tempObj = fields.createNestedObject("temperature");
-  tempObj["doubleValue"] = tempVal;
-
-  JsonObject motionObj = fields.createNestedObject("motion");
-  motionObj["booleanValue"] = motionVal;
-
+  fields.createNestedObject("temperature")["doubleValue"] = t;
+  fields.createNestedObject("motion")["booleanValue"] = m;
   if (isoTime.length() > 0) {
-    JsonObject timestampObj = fields.createNestedObject("timestamp");
-    timestampObj["timestampValue"] = isoTime;
+    fields.createNestedObject("timestamp")["timestampValue"] = isoTime;
   }
-
-  String jsonString;
-  serializeJson(doc, jsonString);
-
-  int httpResponseCode = http.POST(jsonString);
-
-  if (httpResponseCode == 200 || httpResponseCode == 201) {
-    Serial.println("[Firestore] Telemetry updated successfully!");
-  } else {
-    Serial.printf("POST telemetry failed, HTTP: %d\\n", httpResponseCode);
-  }
+  String json;
+  serializeJson(doc, json);
+  http.POST(json);
   http.end();
 }`;
 
