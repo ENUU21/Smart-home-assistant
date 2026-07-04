@@ -32,7 +32,6 @@ import AnalyticsSection from './components/AnalyticsSection';
 import ActivityFeed from './components/ActivityFeed';
 import SystemHealth from './components/SystemHealth';
 import SettingsPanel from './components/SettingsPanel';
-import MediaControlSection from './components/MediaControlSection';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -243,6 +242,15 @@ export default function App() {
         .catch((err) => {
           console.error('[Firestore] Failed to sync control state to Firestore:', err instanceof Error ? err.message : String(err));
         });
+
+      // Synchronize to the local Express backend control endpoint as well
+      fetch('/api/control', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(stateUpdate)
+      }).catch(err => console.warn("[API Control] sendCommand failed to sync state:", err));
 
       // If Firestore Cloud Sync is active, the ESP32 pulls these settings, so do not perform direct local IP HTTP fetches.
       addLog(logMessage, 'success');
@@ -651,12 +659,6 @@ export default function App() {
             {/* Hardware statistics monitor */}
             <SystemHealth metrics={systemHealth} />
           </div>
-
-          {/* Media Player Streaming Hub */}
-          <MediaControlSection
-            currentData={espData}
-            addLog={addLog}
-          />
 
           {/* COLUMN 3 (Full Span Row): Time-Series Analytics Charts & Logging Terminal */}
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-5 gap-6">

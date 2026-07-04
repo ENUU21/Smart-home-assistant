@@ -83,7 +83,7 @@ const char* databaseId = "${settings.firestoreDatabaseTarget === 'custom' ? (fir
 
 // Hardware Pins (Adjust to your actual wiring)
 const int LED_PIN = 12;      // Single GPIO pin connected to your combined Red, Green, Blue LED legs
-const int FAN_PIN = 13;      // Digital Pin for Fan ON/OFF Control (Connected to L298N IN1)
+const int FAN_PIN = 13;      // Pin for Fan Speed PWM Regulation (Connected to MOSFET gate or L298N ENA pin)
 const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
 const int MOTION_PIN = 27;   // PIR Motion sensor pin
 
@@ -224,8 +224,8 @@ void fetchControlState() {
         autoMode = doc["fields"]["auto"]["booleanValue"].as<bool>();
       }
 
-      Serial.printf("Decoded - LED Duty: %d/255, Fan State: %s, Auto: %s\\n", 
-                    ledVal, (fanVal > 0) ? "ON" : "OFF", autoMode ? "ON" : "OFF");
+      Serial.printf("Decoded - LED Duty: %d/255, Fan PWM Duty: %d/255, Auto: %s\\n", 
+                    ledVal, fanVal, autoMode ? "ON" : "OFF");
 
       // Local temperature/occupancy automation if autoMode is active
       if (autoMode) {
@@ -233,9 +233,13 @@ void fetchControlState() {
         bool m = digitalRead(MOTION_PIN) == HIGH;
         if (!isnan(t)) {
           t -= 2.0; // Apply offset of -2C
-          // Dynamic thermostat hysteresis (prevents constant rapid switching)
+          // Dynamic thermostat speed regulation based on actual temperatures
           if (t >= 28.0) {
-            fanVal = 255; // Full power ON if hot
+            fanVal = 255; // 100% full speed if hot
+          } else if (t >= 26.5) {
+            fanVal = 160; // ~63% medium-high speed if warm
+          } else if (t >= 25.5) {
+            fanVal = 90;  // ~35% gentle low speed if mild
           } else if (t < 25.0) {
             fanVal = 0;   // Shut OFF completely if cool
           }
@@ -250,8 +254,8 @@ void fetchControlState() {
       // Set hardware outputs
       // Adjust the combined LED intensity through the single LED_PIN
       setLEDIntensity(ledVal);
-      // Write to Fan as a simple binary Digital HIGH/LOW to prevent startup stalling and core incompatibilities
-      digitalWrite(FAN_PIN, (fanVal > 0) ? HIGH : LOW);
+      // Write to Fan as an analog PWM value (0-255) to smoothly regulate the fan speed
+      analogWrite(FAN_PIN, fanVal);
     } else {
       Serial.print("JSON Deserialization failed: ");
       Serial.println(error.c_str());

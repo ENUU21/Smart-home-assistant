@@ -1029,110 +1029,6 @@ export default function VoiceAssistant({
         </div>
       </GlowCard>
 
-      {/* Futuristic KITTEN Smart Speaker Card */}
-      <GlowCard
-        id="card-smart-speaker"
-        title="KITTEN Speaker"
-        subtitle="I2S AMBIENT AUDIO SUBSYSTEM"
-        glowColor={isPlaying ? 'emerald' : 'none'}
-      >
-        {/* Hidden Audio Player for actual playback */}
-        <audio
-          ref={audioRef}
-          src={currentSong.url}
-          crossOrigin="anonymous"
-          onEnded={handleNextSong}
-          onError={(e) => {
-            console.warn("Smart Speaker local audio load failure: Audio playback error event.");
-            addLog(createLog("Smart Speaker Preview: Local browser playback failed to load audio from remote source. However, the ESP32 streaming URL remains synchronized and is broadcastable!", "info"));
-          }}
-          className="hidden"
-        />
-
-        <div className="flex flex-col gap-4">
-          {/* Playback Track Telemetry */}
-          <div className="flex items-center gap-4 p-3.5 rounded-xl border border-slate-900 bg-slate-950/40">
-            <div className={`p-3 rounded-xl ${isPlaying ? 'bg-emerald-500/10 text-emerald-400 animate-pulse' : 'bg-slate-900 text-slate-500'} transition-all`}>
-              <Music className="w-5 h-5" />
-            </div>
-
-            <div className="flex-grow min-w-0">
-              <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest block leading-none mb-1">
-                {isPlaying ? 'NOW BROADCASTING' : 'SPEAKER STANDBY'}
-              </span>
-              <h3 className="text-sm font-bold text-slate-200 truncate leading-none mb-1">
-                {currentSong.name}
-              </h3>
-              <p className="text-[10px] text-slate-400 truncate font-mono">
-                {currentSong.desc}
-              </p>
-            </div>
-
-            {/* EQ Frequency Animation */}
-            <div className="flex items-end gap-[2px] h-7 px-1">
-              {visLevels.map((height, idx) => (
-                <div
-                  key={idx}
-                  className={`w-[3px] rounded-full transition-all duration-100 ${isPlaying ? 'bg-emerald-400' : 'bg-slate-800'}`}
-                  style={{ height: `${height}px` }}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Playback controls */}
-          <div className="flex items-center justify-between gap-4 font-mono">
-            <div className="flex items-center gap-2">
-              <button
-                id="btn-speaker-play-toggle"
-                onClick={handleTogglePlay}
-                className={`p-2.5 rounded-lg border cursor-pointer transition-all ${
-                  isPlaying 
-                    ? 'border-emerald-500/20 bg-emerald-950/10 text-emerald-400' 
-                    : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:text-white'
-                }`}
-                title={isPlaying ? "Pause Music" : "Play Music"}
-              >
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              </button>
-
-              <button
-                id="btn-speaker-next"
-                onClick={handleNextSong}
-                className="p-2.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:text-white cursor-pointer"
-                title="Skip Track"
-              >
-                <Radio className="w-4 h-4" />
-              </button>
-
-              <button
-                id="btn-speaker-mute"
-                onClick={handleToggleMute}
-                className="p-2.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:text-white cursor-pointer"
-                title={isMuted ? "Unmute" : "Mute"}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-            </div>
-
-            {/* Vol Slider */}
-            <div className="flex items-center gap-2 flex-grow max-w-[120px]">
-              <span className="text-[10px] text-slate-500">VOL</span>
-              <input
-                id="slider-speaker-volume"
-                type="range"
-                min="0"
-                max="100"
-                value={volume}
-                onChange={(e) => handleVolumeChange(parseInt(e.target.value))}
-                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
-              />
-              <span className="text-[10px] text-slate-400 min-w-[20px] text-right">{volume}</span>
-            </div>
-          </div>
-        </div>
-      </GlowCard>
-
       {/* Collapsible ESP32 Hardware Integration Guide */}
       <GlowCard
         id="card-esp32-integration-guide"
@@ -1153,85 +1049,114 @@ export default function VoiceAssistant({
         </button>
 
         {isGuideOpen && (
-          <div className="mt-4 border-t border-slate-900 pt-4 flex flex-col gap-4 font-mono text-[11px] text-slate-300 leading-relaxed max-h-[400px] overflow-y-auto pr-2">
+          <div className="mt-4 border-t border-slate-900 pt-4 flex flex-col gap-4 font-mono text-[11px] text-slate-300 leading-relaxed max-h-[500px] overflow-y-auto pr-2">
             <div>
               <h4 className="text-cyan-400 font-bold uppercase mb-1.5 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                1. Required Audio Hardware
+                1. Main Controller Hardware Connections
               </h4>
               <p className="pl-3 text-slate-400">
-                To enable vocal voice assistance and audio streaming directly on your physical microcontroller:
+                The main ESP32 controller manages the environmental sensors, ventilation speed, and lighting controls:
               </p>
               <ul className="list-disc pl-7 mt-1 text-slate-400 flex flex-col gap-1">
-                <li><strong>I2S Microphone (e.g., INMP441)</strong>: Feeds high-fidelity digitized audio into the ESP32.</li>
-                <li><strong>I2S Audio DAC (e.g., MAX98357A)</strong>: Amplifies signals to direct-drive a 4Ω speaker.</li>
+                <li><strong>DHT11 Sensor</strong>: Measures room temperature and humidity metrics.</li>
+                <li><strong>HC-SR501 / AM312 PIR Motion Sensor</strong>: Detects room occupancy state.</li>
+                <li><strong>PWM Lighting Pin</strong>: Controls RGB LED levels.</li>
+                <li><strong>Fan Speed Controller (MOSFET Driver)</strong>: Uses high-frequency PWM to smoothly regulate DC ventilation fan speed (0% to 100%).</li>
               </ul>
             </div>
 
             <div>
               <h4 className="text-cyan-400 font-bold uppercase mb-1.5 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                2. Pin Connections (ESP32)
+                2. Pin Configuration & Wiring (Main ESP32)
               </h4>
-              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-900 text-[10px]">
-                <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mb-1">INMP441 Mic Pinout:</p>
-                <ul className="flex flex-col gap-0.5">
-                  <li>• VDD ➔ 3.3V</li>
-                  <li>• GND ➔ GND</li>
-                  <li>• L/R ➔ GND (Left Channel)</li>
-                  <li>• SCK ➔ GPIO 14</li>
-                  <li>• SD  ➔ GPIO 32</li>
-                  <li>• WS  ➔ GPIO 15</li>
-                </ul>
-                <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mt-2.5 mb-1">MAX98357A DAC Speaker Pinout:</p>
-                <ul className="flex flex-col gap-0.5">
-                  <li>• Vin ➔ 5V (or 3.3V)</li>
-                  <li>• GND ➔ GND</li>
-                  <li>• LRC ➔ GPIO 25</li>
-                  <li>• BCLK ➔ GPIO 26</li>
-                  <li>• DIN ➔ GPIO 22</li>
-                </ul>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-900 text-[10px] flex flex-col gap-3">
+                <div>
+                  <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mb-1">DHT11 Sensor Pinout:</p>
+                  <ul className="flex flex-col gap-0.5">
+                    <li>• VCC ➔ 3.3V / 5V</li>
+                    <li>• DATA ➔ GPIO 32</li>
+                    <li>• GND ➔ GND</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mb-1">PIR Motion Sensor Pinout:</p>
+                  <ul className="flex flex-col gap-0.5">
+                    <li>• VCC ➔ 5V</li>
+                    <li>• OUT ➔ GPIO 27</li>
+                    <li>• GND ➔ GND</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mb-1">Control Output Pinout:</p>
+                  <ul className="flex flex-col gap-0.5">
+                    <li>• Combined LED Pin ➔ GPIO 12 (PWM)</li>
+                    <li>• Fan Speed Pin ➔ GPIO 13 (PWM)</li>
+                  </ul>
+                </div>
+
+                <div className="border-t border-slate-900/60 pt-2 text-cyan-400">
+                  <p className="font-bold mb-1">New Fan Speed Controller MOSFET Wiring:</p>
+                  <ul className="flex flex-col gap-0.5 text-slate-400 pl-2">
+                    <li>1. <strong>Gate</strong> ➔ Connect to <strong>GPIO 13</strong> with a 220Ω resistor. Connect a 10kΩ pulldown resistor from Gate to GND (keeps fan off on startup).</li>
+                    <li>2. <strong>Source</strong> ➔ Connect to <strong>ESP32 GND</strong> (Common Ground with external power supply).</li>
+                    <li>3. <strong>Drain</strong> ➔ Connect to the <strong>Fan Negative (-) wire</strong>.</li>
+                    <li>4. <strong>Fan Positive (+)</strong> ➔ Connect directly to the <strong>External 5V/12V VCC</strong> power source.</li>
+                    <li>5. <strong>Flyback Diode (1N4007)</strong> ➔ Place across Fan terminals: Anode to Drain, Cathode to VCC (protects ESP32 against back-EMF spikes).</li>
+                  </ul>
+                </div>
               </div>
             </div>
 
             <div>
               <h4 className="text-cyan-400 font-bold uppercase mb-1.5 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                3. ESP32 Arduino Code Snippet
+                3. Secondary Bluetooth Music ESP32
               </h4>
               <p className="pl-3 text-slate-400 mb-2">
-                Use the standard HTTPClient library to POST captured Base64 WebM/WAV audio data directly to KITTEN's server:
+                Your secondary ESP32 connects directly to your phone/tablet/computer via Bluetooth to play audio. It decodes the incoming Bluetooth stream and outputs high-fidelity sound to an external I2S DAC (e.g. MAX98357A, PCM5102) and speaker, separating audio workload from the smart home controller:
               </p>
+
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-900 text-[10px] mb-3">
+                <p className="text-slate-400 font-bold border-b border-slate-900 pb-1 mb-1">I2S DAC (MAX98357A) Pinout:</p>
+                <ul className="flex flex-col gap-0.5 text-slate-300">
+                  <li>• LRC / WS ➔ GPIO 25</li>
+                  <li>• BCLK / BCK ➔ GPIO 26</li>
+                  <li>• DIN / SD ➔ GPIO 22</li>
+                  <li>• VIN ➔ 5V (or 3.3V)</li>
+                  <li>• GND ➔ GND</li>
+                </ul>
+              </div>
+
+              <p className="pl-3 text-slate-400 mb-2 font-bold">Bluetooth Speaker Arduino Code (ESP32-A2DP):</p>
               <pre className="bg-slate-950 p-3 rounded-lg border border-slate-900 text-[10px] text-emerald-400 overflow-x-auto leading-tight">
-{`#include <WiFi.h>
-#include <HTTPClient.h>
+{`#include <Arduino.h>
+#include "BluetoothA2DPSink.h"
 
-// Endpoint URL from Settings Panel
-const char* serverUrl = "https://your-app-domain.com/api/voice-command";
+// Initialize the A2DP Bluetooth Audio Receiver object
+BluetoothA2DPSink a2dp_sink;
 
-void sendVoiceCommand(uint8_t* wavBuffer, size_t size) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(serverUrl);
-    http.addHeader("Content-Type", "application/json");
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting Bluetooth Smart Speaker Subsystem...");
 
-    // Convert binary sound buffer to base64
-    String base64Audio = base64::encode(wavBuffer, size);
+  // Custom I2S Pin mappings for external audio DAC (MAX98357A / PCM5102)
+  // For ESP32-A2DP version 4.0.0+ (compatible with ESP32 board manager core 3.x / ESP-IDF v5)
+  // We can set custom pins (bck, ws, data) directly without using the deprecated i2s_pin_config_t structure
+  a2dp_sink.set_pins(26, 25, 22);
 
-    // Build JSON packet
-    String jsonPayload = "{\\"audio\\":\\"" + base64Audio + "\\",\\"mimeType\\":\\"audio/wav\\"}";
+  // Broadcast device name for Bluetooth pairing
+  // This will appear on your phone as "KITTEN Smart Speaker"
+  a2dp_sink.start("KITTEN Smart Speaker");
+  Serial.println("Ready! Pair device to 'KITTEN Smart Speaker' to play music.");
+}
 
-    int httpResponseCode = http.POST(jsonPayload);
-    if (httpResponseCode > 0) {
-      String response = http.getString();
-      Serial.println(response);
-      // Parse response to adjust LED level & Fan speed!
-    } else {
-      Serial.print("HTTP error: ");
-      Serial.println(httpResponseCode);
-    }
-    http.end();
-  }
+void loop() {
+  // Bluetooth streaming is handled asynchronously by the library on Core 0!
+  delay(100);
 }`}
               </pre>
             </div>

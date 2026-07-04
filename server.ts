@@ -5,6 +5,7 @@
 
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -36,6 +37,192 @@ async function startServer() {
   // Middleware for body parsing
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // In-memory control state backup for low-latency ESP32 polling
+  let espControlState = {
+    led: 50,
+    fan: 1,
+    auto: true,
+    voice: false,
+    songUrl: "http://codesandbox.sandcat.nl/test.mp3",
+    songName: "Default Sync Track",
+    isPlaying: false,
+    volume: 50
+  };
+
+  // Get ESP32 control state (lightweight JSON for ESP32 HTTP polling)
+  app.get("/api/control", async (req, res) => {
+    try {
+      // Try to fetch latest live document from Firestore REST API as a fallback
+      const firestoreUrl = "https://firestore.googleapis.com/v1/projects/kitten-smarthome/databases/ai-studio-kittensmarthomea-7eaaabc9-3649-44ab-ac87-6d970ec15491/documents/control/esp32";
+      const response = await fetch(firestoreUrl);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.fields) {
+          const fields = data.fields;
+          espControlState = {
+            led: fields.led ? Number(fields.led.integerValue || fields.led.doubleValue || 50) : espControlState.led,
+            fan: fields.fan ? Number(fields.fan.integerValue || fields.fan.doubleValue || 1) : espControlState.fan,
+            auto: fields.auto ? Boolean(fields.auto.booleanValue) : espControlState.auto,
+            voice: fields.voice ? Boolean(fields.voice.booleanValue) : espControlState.voice,
+            songUrl: fields.songUrl ? String(fields.songUrl.stringValue) : espControlState.songUrl,
+            songName: fields.songName ? String(fields.songName.stringValue) : espControlState.songName,
+            isPlaying: fields.isPlaying ? Boolean(fields.isPlaying.booleanValue) : espControlState.isPlaying,
+            volume: fields.volume ? Number(fields.volume.integerValue || fields.volume.doubleValue || 50) : espControlState.volume,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("[Control API] Firestore REST fallback fetch error (using cache):", err);
+    }
+
+    // Resolve local upload relative path dynamically to absolute public URL
+    let resolvedSongUrl = espControlState.songUrl;
+    if (resolvedSongUrl && resolvedSongUrl.startsWith("/uploads/")) {
+      const host = req.headers.host || "localhost:3000";
+      // Support secure https if behind reverse proxy/Cloud Run
+      const protocol = req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+      resolvedSongUrl = `${protocol}://${host}${espControlState.songUrl}`;
+    }
+
+    res.json({
+      ...espControlState,
+      songUrl: resolvedSongUrl
+    });
+  });
+
+  // Update ESP32 control state (called by the frontend to keep cache fresh)
+  app.post("/api/control", (req, res) => {
+    try {
+      const { led, fan, auto, voice, songUrl, songName, isPlaying, volume } = req.body;
+      if (led !== undefined) espControlState.led = Number(led);
+      if (fan !== undefined) espControlState.fan = Number(fan);
+      if (auto !== undefined) espControlState.auto = Boolean(auto);
+      if (voice !== undefined) espControlState.voice = Boolean(voice);
+      if (songUrl !== undefined) espControlState.songUrl = String(songUrl);
+      if (songName !== undefined) espControlState.songName = String(songName);
+      if (isPlaying !== undefined) espControlState.isPlaying = Boolean(isPlaying);
+      if (volume !== undefined) espControlState.volume = Number(volume);
+
+      res.json({ success: true, state: espControlState });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to update control state", details: err.message });
+    }
+  });
+
+  // Create local uploads directory if it doesn't exist
+  const uploadsDir = path.join(process.cwd(), "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  // Serve uploaded files statically
+  app.use("/uploads", express.static(uploadsDir));
+
+  // Local file upload endpoint with cloud proxy to bypass Firebase Storage and 302 proxy issues
+  app.post("/api/upload-audio", async (req, res) => {
+    try {
+      const { fileName, fileType, fileData } = req.body;
+      if (!fileName || !fileData) {
+        return res.status(400).json({ error: "fileName and fileData are required in body." });
+      }
+
+      // Convert base64 data to binary buffer
+      const buffer = Buffer.from(fileData, "base64");
+
+      // Validate file size (12MB maximum limit)
+      if (buffer.length > 12 * 1024 * 1024) {
+        return res.status(400).json({ error: "File exceeds the 12MB limit." });
+      }
+
+      // Generate a clean safe filename to avoid injection or path traversal
+      const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+
+      let publicUrl = "";
+      let uploadSuccess = false;
+
+      // 1. Try Catbox.moe (Provides permanent public URLs accessible by ESP32)
+      try {
+        console.log(`[Upload API] Attempting cloud upload to Catbox: ${safeName}`);
+        const catboxForm = new FormData();
+        catboxForm.append("reqtype", "fileupload");
+        const fileBlob = new Blob([buffer], { type: fileType || "audio/mpeg" });
+        catboxForm.append("fileToUpload", fileBlob, safeName);
+
+        const catboxResponse = await fetch("https://catbox.moe/user/api.php", {
+          method: "POST",
+          body: catboxForm,
+        });
+
+        if (catboxResponse.ok) {
+          const text = await catboxResponse.text();
+          if (text && text.startsWith("https://files.catbox.moe/")) {
+            publicUrl = text.trim();
+            uploadSuccess = true;
+            console.log(`[Upload API] Successfully uploaded to Catbox: ${publicUrl}`);
+          } else {
+            console.warn(`[Upload API] Catbox response was unexpected: ${text}`);
+          }
+        } else {
+          console.warn(`[Upload API] Catbox returned status ${catboxResponse.status}`);
+        }
+      } catch (catboxErr) {
+        console.error(`[Upload API] Catbox upload failed:`, catboxErr);
+      }
+
+      // 2. Try Tmpfiles.org as a temporary fallback if Catbox is down
+      if (!uploadSuccess) {
+        try {
+          console.log(`[Upload API] Attempting cloud upload to Tmpfiles: ${safeName}`);
+          const tmpForm = new FormData();
+          const fileBlob = new Blob([buffer], { type: fileType || "audio/mpeg" });
+          tmpForm.append("file", fileBlob, safeName);
+
+          const tmpResponse = await fetch("https://tmpfiles.org/api/v1/upload", {
+            method: "POST",
+            body: tmpForm,
+          });
+
+          if (tmpResponse.ok) {
+            const json = await tmpResponse.json();
+            if (json && json.status === "success" && json.data && json.data.url) {
+              const rawUrl = json.data.url;
+              // Convert download url (e.g., https://tmpfiles.org/123/name.mp3 -> https://tmpfiles.org/dl/123/name.mp3)
+              publicUrl = rawUrl.replace("https://tmpfiles.org/", "https://tmpfiles.org/dl/");
+              uploadSuccess = true;
+              console.log(`[Upload API] Successfully uploaded to Tmpfiles: ${publicUrl}`);
+            } else {
+              console.warn(`[Upload API] Tmpfiles response was unexpected:`, json);
+            }
+          } else {
+            console.warn(`[Upload API] Tmpfiles returned status ${tmpResponse.status}`);
+          }
+        } catch (tmpErr) {
+          console.error(`[Upload API] Tmpfiles upload failed:`, tmpErr);
+        }
+      }
+
+      // 3. Fallback to saving locally (though ESP32 cannot easily fetch it due to 302 proxy auth)
+      if (!uploadSuccess) {
+        const filePath = path.join(uploadsDir, safeName);
+        fs.writeFileSync(filePath, buffer);
+        publicUrl = `/uploads/${safeName}`;
+        console.log(`[Upload API] Both cloud uploads failed. Falling back to local file: ${publicUrl}`);
+      }
+
+      res.json({
+        url: publicUrl,
+        fileName: safeName,
+        success: true
+      });
+    } catch (err: any) {
+      console.error("[Upload API Error]:", err);
+      res.status(500).json({
+        error: "Failed to process and store file on server.",
+        details: err.message || err
+      });
+    }
+  });
 
   // API Endpoint for Voice Command processing
   app.post("/api/voice-command", async (req, res) => {
