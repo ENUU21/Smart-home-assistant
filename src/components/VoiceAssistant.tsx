@@ -55,6 +55,8 @@ interface VoiceAssistantProps {
   onCommandTriggered: (updatedData: Partial<ESP32Data>, logMsg: string) => void;
   addLog: (log: ReturnType<typeof createLog>) => void;
   isLoading: boolean;
+  onOpenWeeklyReport?: () => void;
+  onOpenWeather?: () => void;
 }
 
 export default function VoiceAssistant({
@@ -63,6 +65,8 @@ export default function VoiceAssistant({
   onCommandTriggered,
   addLog,
   isLoading,
+  onOpenWeeklyReport,
+  onOpenWeather,
 }: VoiceAssistantProps) {
   const [voiceStatus, setVoiceStatus] = useState<'IDLE' | 'LISTENING' | 'PROCESSING'>('IDLE');
   const [lastCommand, setLastCommand] = useState<string>('System initialized.');
@@ -92,7 +96,17 @@ export default function VoiceAssistant({
     let reply = "I parsed your command.";
     
     // 1. Match high-priority presets and system automation modes first
-    if (normalized.includes("heading out")) {
+    if (normalized.includes("weekly report")) {
+      reply = "Initiating core synchronization. Opening the KITTEN Weekly Environment & Energy Insights Report now.";
+      if (onOpenWeeklyReport) {
+        setTimeout(() => onOpenWeeklyReport(), 200);
+      }
+    } else if (normalized.includes("weather")) {
+      reply = "Acquiring real-time meteorological station logs. Opening Weather Station panel now.";
+      if (onOpenWeather) {
+        setTimeout(() => onOpenWeather(), 200);
+      }
+    } else if (normalized.includes("heading out")) {
       updates.led = 0;
       updates.fan = 0;
       updates.auto = true;
@@ -631,6 +645,18 @@ export default function VoiceAssistant({
         setLastCommand(`"${resData.transcript}"`);
         setAssistantReply(resData.reply);
 
+        // Check for report or weather in transcript
+        const transcriptLower = (resData.transcript || "").toLowerCase();
+        if (transcriptLower.includes("weekly report")) {
+          if (onOpenWeeklyReport) {
+            setTimeout(() => onOpenWeeklyReport(), 200);
+          }
+        } else if (transcriptLower.includes("weather")) {
+          if (onOpenWeather) {
+            setTimeout(() => onOpenWeather(), 200);
+          }
+        }
+
         // Propagate smart home state updates
         const updates: Partial<ESP32Data> = { voice: false };
         if (resData.mode) {
@@ -890,58 +916,6 @@ export default function VoiceAssistant({
             </div>
           </div>
 
-          {/* AI Processing Credits Counter & Progress Bar */}
-          <div className="p-3.5 rounded-xl border border-slate-900 bg-slate-950/20 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Zap className={`w-3.5 h-3.5 ${credits > 30 ? 'text-amber-400' : 'text-rose-500 animate-pulse'}`} />
-                <span className="text-[10px] text-slate-400 font-mono tracking-wider font-semibold">
-                  SPARK PLAN COGNITIVE QUOTA
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-200">
-                  {credits} <span className="text-slate-500">/ 150</span>
-                </span>
-                <button
-                  id="btn-replenish-credits"
-                  onClick={() => {
-                    setCredits(150);
-                    addLog(createLog("Spark Plan cognitive quota replenished successfully to 150 credits.", "success"));
-                  }}
-                  className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-850 text-cyan-400 hover:text-cyan-300 transition-all text-[9px] font-mono cursor-pointer flex items-center gap-1"
-                  title="Replenish Spark Quota"
-                >
-                  <RefreshCw className="w-2.5 h-2.5" /> RECHARGE
-                </button>
-              </div>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-900/40">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  credits > 75
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                    : credits > 30
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
-                      : 'bg-gradient-to-r from-rose-600 to-rose-400 animate-pulse'
-                }`}
-                style={{ width: `${Math.min(100, (credits / 150) * 100)}%` }}
-              />
-            </div>
-
-            {/* Explanation details */}
-            <div className="flex justify-between items-center text-[8.5px] font-mono text-slate-500 leading-none mt-0.5">
-              <span>Cost: -15/audio request, -2/preset trigger</span>
-              {credits < 15 && (
-                <span className="text-rose-400 animate-pulse flex items-center gap-1 font-bold">
-                  <AlertCircle className="w-2.5 h-2.5" /> LOW CREDITS
-                </span>
-              )}
-            </div>
-          </div>
-
           {/* NLP Command Terminal Output */}
           <div className="p-4 rounded-xl border border-slate-900 bg-slate-950/80 font-mono text-xs flex flex-col gap-2.5">
             <div>
@@ -962,84 +936,6 @@ export default function VoiceAssistant({
               <div className="text-cyan-400/90 pl-4.5 text-[11px] leading-relaxed mt-1 italic">
                 {assistantReply}
               </div>
-            </div>
-          </div>
-
-          {/* Keyboard Command Console Input Fallback */}
-          <div>
-            <span className="text-[10px] text-slate-500 font-mono tracking-wider block mb-2 uppercase flex items-center gap-1">
-              <Keyboard className="w-3.5 h-3.5 text-cyan-400" /> Type Keyboard Command
-            </span>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const cmd = textCommand.trim();
-                if (!cmd) return;
-                setTextCommand('');
-                setLastCommand(`"${cmd}" (Typed)`);
-                setVoiceStatus('PROCESSING');
-                setAssistantReply('Parsing text command locally...');
-                
-                setTimeout(() => {
-                  const { updates, reply } = parseTextCommand(cmd);
-                  setAssistantReply(reply);
-                  onCommandTriggered(
-                    updates,
-                    `Typed: "${cmd}". Reply: "${reply}"`
-                  );
-                  
-                  // Music triggers based on parsing
-                  if (cmd.toLowerCase().includes('sleep')) {
-                    playSong(SONGS[1]);
-                  } else if (cmd.toLowerCase().includes('gaming') || cmd.toLowerCase().includes('game')) {
-                    playSong(SONGS[2]);
-                  } else if (cmd.toLowerCase().includes('music') || cmd.toLowerCase().includes('play')) {
-                    playSong(SONGS[0]);
-                  } else if (cmd.toLowerCase().includes('stop') && cmd.toLowerCase().includes('music')) {
-                    stopSong();
-                  }
-
-                  setVoiceStatus('IDLE');
-                }, 400);
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                value={textCommand}
-                onChange={(e) => setTextCommand(e.target.value)}
-                placeholder='e.g. "turn fan on", "set fan to 180", "movie mode"'
-                className="flex-grow bg-slate-950 border border-slate-900 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/25 font-mono"
-              />
-              <button
-                type="submit"
-                disabled={voiceStatus !== 'IDLE' || isLoading}
-                className="px-4 py-2.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 rounded-xl text-xs font-mono font-bold tracking-wider cursor-pointer active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-1.5"
-              >
-                <Send className="w-3 h-3" />
-                <span>SEND</span>
-              </button>
-            </form>
-          </div>
-
-          {/* Quick Voice Simulation Buttons */}
-          <div>
-            <span className="text-[10px] text-slate-500 font-mono tracking-wider block mb-2 uppercase flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-amber-400" /> Click to Simulate Command
-            </span>
-
-            <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
-              {mockVoiceCommands.map((cmdObj, idx) => (
-                <button
-                  key={idx}
-                  id={`btn-voice-preset-${idx}`}
-                  onClick={() => handlePresetSimulation(cmdObj)}
-                  disabled={voiceStatus !== 'IDLE' || isLoading}
-                  className="text-[10px] font-mono px-2 py-1 rounded-lg border border-slate-900 bg-slate-950/50 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-950/10 hover:text-cyan-300 transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none text-left cursor-pointer"
-                >
-                  "{cmdObj.command}"
-                </button>
-              ))}
             </div>
           </div>
         </div>

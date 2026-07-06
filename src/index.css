@@ -46,23 +46,28 @@
   color: #00ffd0 !important;
 }
 
-/* Custom Scrollbars for Activity Feed */
+/* Custom Scrollbars for Activity Feed and App Containers */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #0284c7 #020617;
+}
+
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.4);
+  background: #020617;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 208, 0.2);
-  border-radius: 4px;
+  background: #0284c7;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 208, 0.4);
+  background: #0ea5e9;
 }
 
 /* Custom Fan blade rotation animation */

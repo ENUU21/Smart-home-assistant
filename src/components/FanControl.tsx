@@ -184,74 +184,20 @@ export default function FanControl({
 
             {arrivalSchedule.enabled && (
               <div className="flex flex-col gap-2.5 p-2.5 rounded-lg bg-slate-950/60 border border-slate-900/80 animate-fadeIn">
-                <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono">
-                  <button
-                    id="btn-arrival-school"
-                    onClick={() => onChangeArrivalSchedule({
-                      ...arrivalSchedule,
-                      type: 'school',
-                      time: '15:30'
-                    })}
-                    className={`py-1 px-1.5 rounded border transition-colors ${
-                      arrivalSchedule.type === 'school'
-                        ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-400 font-bold'
-                        : 'border-slate-900 bg-slate-950 text-slate-500 hover:border-slate-800'
-                    }`}
-                  >
-                    After School
-                  </button>
-                  <button
-                    id="btn-arrival-office"
-                    onClick={() => onChangeArrivalSchedule({
-                      ...arrivalSchedule,
-                      type: 'office',
-                      time: '18:00'
-                    })}
-                    className={`py-1 px-1.5 rounded border transition-colors ${
-                      arrivalSchedule.type === 'office'
-                        ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-400 font-bold'
-                        : 'border-slate-900 bg-slate-950 text-slate-500 hover:border-slate-800'
-                    }`}
-                  >
-                    After Office
-                  </button>
-                  <button
-                    id="btn-arrival-custom"
-                    onClick={() => onChangeArrivalSchedule({
-                      ...arrivalSchedule,
-                      type: 'custom'
-                    })}
-                    className={`py-1 px-1.5 rounded border transition-colors ${
-                      arrivalSchedule.type === 'custom'
-                        ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-400 font-bold'
-                        : 'border-slate-900 bg-slate-950 text-slate-500 hover:border-slate-800'
-                    }`}
-                  >
-                    Custom Time
-                  </button>
-                </div>
-
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-[10px] text-slate-500 font-mono">
-                    {arrivalSchedule.type === 'school' && "School arrival (3:30 PM)"}
-                    {arrivalSchedule.type === 'office' && "Office arrival (6:00 PM)"}
-                    {arrivalSchedule.type === 'custom' && "Set your arrival time"}
+                  <span className="text-xs text-slate-400 font-mono">
+                    Pick your arrival time:
                   </span>
 
                   <input
                     id="input-arrival-time"
                     type="time"
-                    disabled={arrivalSchedule.type !== 'custom'}
                     value={arrivalSchedule.time}
                     onChange={(e) => onChangeArrivalSchedule({
                       ...arrivalSchedule,
                       time: e.target.value
                     })}
-                    className={`bg-slate-950 border text-[11px] font-mono px-2 py-1 rounded focus:outline-none transition-all ${
-                      arrivalSchedule.type === 'custom'
-                        ? 'border-cyan-500/30 text-cyan-400 focus:border-cyan-400'
-                        : 'border-slate-900 text-slate-600'
-                    }`}
+                    className="bg-slate-950 border border-cyan-500/30 text-cyan-400 text-xs font-mono px-2 py-1 rounded focus:outline-none focus:border-cyan-400 transition-all"
                   />
                 </div>
 

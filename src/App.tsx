@@ -32,6 +32,7 @@ import AnalyticsSection from './components/AnalyticsSection';
 import ActivityFeed from './components/ActivityFeed';
 import SystemHealth from './components/SystemHealth';
 import SettingsPanel from './components/SettingsPanel';
+import WeatherModal from './components/WeatherModal';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -139,12 +140,118 @@ export default function App() {
     localStorage.setItem('kitten_arrival_schedule', JSON.stringify(arrivalSchedule));
   }, [arrivalSchedule]);
 
+  // AI Trend Analyzer States
+  const [trendConsecutiveDays, setTrendConsecutiveDays] = useState<number>(() => {
+    return Number(localStorage.getItem('kitten_trend_days') || '0');
+  });
+  const [trendMissedDays, setTrendMissedDays] = useState<number>(() => {
+    return Number(localStorage.getItem('kitten_trend_missed') || '0');
+  });
+  const [learnedTime, setLearnedTime] = useState<string | null>(() => {
+    return localStorage.getItem('kitten_learned_time') || null;
+  });
+
+  const isTrendRuleActive = trendConsecutiveDays >= 3;
+
+  useEffect(() => {
+    localStorage.setItem('kitten_trend_days', String(trendConsecutiveDays));
+  }, [trendConsecutiveDays]);
+
+  useEffect(() => {
+    localStorage.setItem('kitten_trend_missed', String(trendMissedDays));
+  }, [trendMissedDays]);
+
+  useEffect(() => {
+    if (learnedTime) {
+      localStorage.setItem('kitten_learned_time', learnedTime);
+    } else {
+      localStorage.removeItem('kitten_learned_time');
+    }
+  }, [learnedTime]);
+
+  const formatTime12h = (timeStr: string | null): string => {
+    if (!timeStr) return '';
+    const [hStr, mStr] = timeStr.split(':');
+    const h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10);
+    if (isNaN(h) || isNaN(m)) return timeStr;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    const displayM = m < 10 ? `0${m}` : m;
+    return `${displayH}:${displayM} ${ampm}`;
+  };
+
+  const handleSimulateTrendEntry = (timeStr: string) => {
+    setTrendMissedDays(0);
+    const displayTime = formatTime12h(timeStr);
+
+    if (trendConsecutiveDays === 0 || !learnedTime) {
+      setLearnedTime(timeStr);
+      setTrendConsecutiveDays(1);
+      addLog(`[AI Trend] Day 1: New entry routine candidate registered at ${displayTime}. Need to enter around this time for 2 more days to form a rule.`, 'info');
+    } else {
+      // Parse times to find shortest distance in minutes
+      const [h1, m1] = timeStr.split(':').map(Number);
+      const [h2, m2] = learnedTime.split(':').map(Number);
+      const t1 = h1 * 60 + m1;
+      const t2 = h2 * 60 + m2;
+      const rawDiff = Math.abs(t1 - t2);
+      const diff = Math.min(rawDiff, 1440 - rawDiff);
+
+      if (diff <= 60) {
+        // Entries within 1 hour matching range
+        setTrendConsecutiveDays((prev) => {
+          const next = Math.min(4, prev + 1);
+          if (next === 3) {
+            addLog(`[AI Trend] Day 3: Entry detected at ${displayTime}, matching learned routine (${formatTime12h(learnedTime)}). ACTIVE PREDICTIVE PRE-COOLING RULE ENABLED!`, 'success');
+          } else if (next === 4) {
+            addLog(`[AI Trend] Day 4: Entry detected at ${displayTime}, reinforcing routine (${formatTime12h(learnedTime)}). Pre-cooling schedule is highly optimized.`, 'success');
+          } else {
+            addLog(`[AI Trend] Day ${next}: Entry detected at ${displayTime}, matching candidate routine (${formatTime12h(learnedTime)}). ${3 - next} more day(s) required to activate pre-cooling.`, 'info');
+          }
+          return next;
+        });
+      } else {
+        addLog(`[AI Trend] Room entry detected at ${displayTime}, but it does not match learned routine (${formatTime12h(learnedTime)}). No consecutive trend incremented.`, 'warning');
+      }
+    }
+  };
+
+  const handleSimulateTrendMiss = () => {
+    if (!learnedTime) {
+      addLog(`[AI Trend] Miss ignored: No active arrival routine candidate has been registered yet.`, 'info');
+      return;
+    }
+
+    setTrendMissedDays((prev) => {
+      const next = prev + 1;
+      if (next >= 2) {
+        addLog(`[AI Trend] Missed room entrance near learned routine (${formatTime12h(learnedTime)}) for 2 days straight. Trend database purged and reset!`, 'alert');
+        setTrendConsecutiveDays(0);
+        setLearnedTime(null);
+        return 0;
+      } else {
+        addLog(`[AI Trend] No room activity detected near routine (${formatTime12h(learnedTime)}). Missed Day ${next}/2 logged. Rule will be forgotten if missed tomorrow.`, 'warning');
+        return next;
+      }
+    });
+  };
+
+  const handleResetTrend = () => {
+    setTrendConsecutiveDays(0);
+    setTrendMissedDays(0);
+    setLearnedTime(null);
+    addLog(`[AI Trend] Trend pattern databases purged and reset to defaults.`, 'info');
+  };
+
   // UI state controllers
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const [latency, setLatency] = useState<number | null>(null);
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showDocsModal, setShowDocsModal] = useState<boolean>(false);
+  const [showWeeklyReportModal, setShowWeeklyReportModal] = useState<boolean>(false);
+  const [showWeatherModal, setShowWeatherModal] = useState<boolean>(false);
 
   // References to keep state available inside polling callbacks
   const settingsRef = useRef(settings);
@@ -394,7 +501,7 @@ export default function App() {
         // Insert new history data point for the graphs
         setHistoryData((prev) => {
           const now = new Date();
-          const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const newPoint: HistoryDataPoint = {
             time: timeStr,
             temperature: espDataRef.current.temperature,
@@ -403,12 +510,18 @@ export default function App() {
             fan: espDataRef.current.fan,
           };
           
-          // Limit to last 15 ticks
-          const nextHistory = [...prev, newPoint];
-          if (nextHistory.length > 15) {
-            return nextHistory.slice(nextHistory.length - 15);
+          const lastPoint = prev[prev.length - 1];
+          if (lastPoint && lastPoint.time === timeStr) {
+            const updatedHistory = [...prev];
+            updatedHistory[updatedHistory.length - 1] = newPoint;
+            return updatedHistory;
+          } else {
+            const nextHistory = [...prev, newPoint];
+            if (nextHistory.length > 1000) {
+              return nextHistory.slice(nextHistory.length - 1000);
+            }
+            return nextHistory;
           }
-          return nextHistory;
         });
 
         setLatency(1); // minimal simulation latency
@@ -432,7 +545,7 @@ export default function App() {
           // Save history trace using current state synced from Firestore
           setHistoryData((prev) => {
             const now = new Date();
-            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const data = espDataRef.current;
             const newPoint: HistoryDataPoint = {
               time: timeStr,
@@ -441,11 +554,19 @@ export default function App() {
               led: data.led,
               fan: data.fan,
             };
-            const nextHistory = [...prev, newPoint];
-            if (nextHistory.length > 15) {
-              return nextHistory.slice(nextHistory.length - 15);
+            
+            const lastPoint = prev[prev.length - 1];
+            if (lastPoint && lastPoint.time === timeStr) {
+              const updatedHistory = [...prev];
+              updatedHistory[updatedHistory.length - 1] = newPoint;
+              return updatedHistory;
+            } else {
+              const nextHistory = [...prev, newPoint];
+              if (nextHistory.length > 1000) {
+                return nextHistory.slice(nextHistory.length - 1000);
+              }
+              return nextHistory;
             }
-            return nextHistory;
           });
         } else {
           // Fallback direct HTTP polling (only used if Cloud Sync is toggled off)
@@ -478,7 +599,7 @@ export default function App() {
               // Save history trace
               setHistoryData((prev) => {
                 const now = new Date();
-                const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 const newPoint: HistoryDataPoint = {
                   time: timeStr,
                   temperature: data.temperature,
@@ -486,11 +607,19 @@ export default function App() {
                   led: data.led,
                   fan: data.fan,
                 };
-                const nextHistory = [...prev, newPoint];
-                if (nextHistory.length > 15) {
-                  return nextHistory.slice(nextHistory.length - 15);
+                
+                const lastPoint = prev[prev.length - 1];
+                if (lastPoint && lastPoint.time === timeStr) {
+                  const updatedHistory = [...prev];
+                  updatedHistory[updatedHistory.length - 1] = newPoint;
+                  return updatedHistory;
+                } else {
+                  const nextHistory = [...prev, newPoint];
+                  if (nextHistory.length > 1000) {
+                    return nextHistory.slice(nextHistory.length - 1000);
+                  }
+                  return nextHistory;
                 }
-                return nextHistory;
               });
             }
           } catch (err) {
@@ -634,6 +763,42 @@ export default function App() {
     return () => clearInterval(interval);
   }, [arrivalSchedule]);
 
+  // Check learned arrival pre-cooling schedule exactly 5 minutes before the dynamically learned time
+  useEffect(() => {
+    if (!isTrendRuleActive || !learnedTime) return;
+
+    let lastTriggeredMinute = '';
+
+    const checkTrendCooling = () => {
+      const now = new Date();
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const currentMinuteStr = `${currentHours}:${currentMinutes}`;
+
+      if (currentMinuteStr === lastTriggeredMinute) return;
+
+      const [learnedH, learnedM] = learnedTime.split(':').map(Number);
+      const learnedMinutesTotal = learnedH * 60 + learnedM;
+      const triggerMinutes = (learnedMinutesTotal - 5 + 1440) % 1440;
+      const currentMinutesTotal = currentHours * 60 + currentMinutes;
+
+      if (currentMinutesTotal === triggerMinutes) {
+        lastTriggeredMinute = currentMinuteStr;
+        
+        // Turn on fan to high speed (180 out of 255)
+        sendCommand(
+          '/fan?value=180',
+          { fan: 180, auto: false },
+          `[AI Predict] Learned ${formatTime12h(learnedTime)} entry pattern active! Fan automatically activated 5 minutes prior at ${formatTime12h(currentMinuteStr)} for microclimate optimization.`
+        );
+      }
+    };
+
+    checkTrendCooling();
+    const interval = setInterval(checkTrendCooling, 10000);
+    return () => clearInterval(interval);
+  }, [isTrendRuleActive, learnedTime]);
+
   return (
     <div className={`min-h-screen pb-16 flex flex-col ${settings.lowLightMode ? 'brightness-90 saturate-75' : ''}`}>
       {/* 1. Header component */}
@@ -708,6 +873,8 @@ export default function App() {
               onCommandTriggered={handleVoiceCommandAction}
               addLog={(newLog) => setLogs((prev) => [...prev, newLog])}
               isLoading={isFetching}
+              onOpenWeeklyReport={() => setShowWeeklyReportModal(true)}
+              onOpenWeather={() => setShowWeatherModal(true)}
             />
 
             {/* Hardware statistics monitor */}
@@ -717,7 +884,12 @@ export default function App() {
           {/* COLUMN 3 (Full Span Row): Time-Series Analytics Charts & Logging Terminal */}
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-5 gap-6">
             {/* Recharts Analytics graphs */}
-            <AnalyticsSection historyData={historyData} />
+            <AnalyticsSection
+              historyData={historyData}
+              showWeeklyModal={showWeeklyReportModal}
+              onOpenWeeklyModal={() => setShowWeeklyReportModal(true)}
+              onCloseWeeklyModal={() => setShowWeeklyReportModal(false)}
+            />
 
             {/* Audit log terminal list */}
             <ActivityFeed logs={logs} onClearLogs={() => setLogs([])} />
@@ -890,6 +1062,14 @@ void setup() {
           </div>
         </div>
       )}
+
+      {/* 3. METEOROLOGICAL WEATHER STATION MODAL */}
+      <WeatherModal
+        isOpen={showWeatherModal}
+        onClose={() => setShowWeatherModal(false)}
+        indoorData={espData}
+        addLog={addLog}
+      />
     </div>
   );
 }
