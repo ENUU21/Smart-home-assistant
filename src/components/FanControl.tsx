@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Wind, Power } from 'lucide-react';
+import { Wind, Power, Clock } from 'lucide-react';
 import { ESP32Data } from '../types';
 import GlowCard from './GlowCard';
 
@@ -12,9 +12,25 @@ interface FanControlProps {
   data: ESP32Data;
   onFanChange: (value: number) => void;
   isLoading: boolean;
+  arrivalSchedule?: {
+    enabled: boolean;
+    type: 'school' | 'office' | 'custom';
+    time: string;
+  };
+  onChangeArrivalSchedule?: (newSchedule: {
+    enabled: boolean;
+    type: 'school' | 'office' | 'custom';
+    time: string;
+  }) => void;
 }
 
-export default function FanControl({ data, onFanChange, isLoading }: FanControlProps) {
+export default function FanControl({
+  data,
+  onFanChange,
+  isLoading,
+  arrivalSchedule,
+  onChangeArrivalSchedule,
+}: FanControlProps) {
   const isFanOn = data.fan > 0;
 
   // Compute CSS rotation animation duration based on state
@@ -143,6 +159,118 @@ export default function FanControl({ data, onFanChange, isLoading }: FanControlP
             <span>MAX VENTILATION</span>
           </div>
         </div>
+
+        {/* Arrival Pre-Cooling Scheduler */}
+        {arrivalSchedule && onChangeArrivalSchedule && (
+          <div className="pt-4 border-t border-slate-900/60 mt-2">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-slate-400 font-mono flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-cyan-400" /> Arrival Pre-Cooling
+              </span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  id="toggle-arrival-precooling"
+                  type="checkbox"
+                  checked={arrivalSchedule.enabled}
+                  onChange={(e) => onChangeArrivalSchedule({
+                    ...arrivalSchedule,
+                    enabled: e.target.checked
+                  })}
+                  className="sr-only peer"
+                />
+                <div className="w-8 h-4 bg-slate-900 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-slate-400 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500/30 peer-checked:after:bg-cyan-400" />
+              </label>
+            </div>
+
+            {arrivalSchedule.enabled && (
+              <div className="flex flex-col gap-2.5 p-2.5 rounded-lg bg-slate-950/60 border border-slate-900/80 animate-fadeIn">
+                <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono">
+                  <button
+                    id="btn-arrival-school"
+                    onClick={() => onChangeArrivalSchedule({
+                      ...arrivalSchedule,
+                      type: 'school',
+                      time: '15:30'
+                    })}
+                    className={`py-1 px-1.5 rounded border transition-colors ${
+                      arrivalSchedule.type === 'school'
+                        ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-400 font-bold'
+                        : 'border-slate-900 bg-slate-950 text-slate-500 hover:border-slate-800'
+                    }`}
+                  >
+                    After School
+                  </button>
+                  <button
+                    id="btn-arrival-office"
+                    onClick={() => onChangeArrivalSchedule({
+                      ...arrivalSchedule,
+                      type: 'office',
+                      time: '18:00'
+                    })}
+                    className={`py-1 px-1.5 rounded border transition-colors ${
+                      arrivalSchedule.type === 'office'
+                        ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-400 font-bold'
+                        : 'border-slate-900 bg-slate-950 text-slate-500 hover:border-slate-800'
+                    }`}
+                  >
+                    After Office
+                  </button>
+                  <button
+                    id="btn-arrival-custom"
+                    onClick={() => onChangeArrivalSchedule({
+                      ...arrivalSchedule,
+                      type: 'custom'
+                    })}
+                    className={`py-1 px-1.5 rounded border transition-colors ${
+                      arrivalSchedule.type === 'custom'
+                        ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-400 font-bold'
+                        : 'border-slate-900 bg-slate-950 text-slate-500 hover:border-slate-800'
+                    }`}
+                  >
+                    Custom Time
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {arrivalSchedule.type === 'school' && "School arrival (3:30 PM)"}
+                    {arrivalSchedule.type === 'office' && "Office arrival (6:00 PM)"}
+                    {arrivalSchedule.type === 'custom' && "Set your arrival time"}
+                  </span>
+
+                  <input
+                    id="input-arrival-time"
+                    type="time"
+                    disabled={arrivalSchedule.type !== 'custom'}
+                    value={arrivalSchedule.time}
+                    onChange={(e) => onChangeArrivalSchedule({
+                      ...arrivalSchedule,
+                      time: e.target.value
+                    })}
+                    className={`bg-slate-950 border text-[11px] font-mono px-2 py-1 rounded focus:outline-none transition-all ${
+                      arrivalSchedule.type === 'custom'
+                        ? 'border-cyan-500/30 text-cyan-400 focus:border-cyan-400'
+                        : 'border-slate-900 text-slate-600'
+                    }`}
+                  />
+                </div>
+
+                <div className="text-[9px] text-cyan-500/80 font-mono leading-relaxed bg-cyan-950/10 p-1.5 rounded border border-cyan-500/10">
+                  ⚡ <strong>Auto pre-cooling:</strong> Fan will automatically spin up to 70% speed 5 minutes before your arrival ({
+                    (() => {
+                      const [h, m] = arrivalSchedule.time.split(':').map(Number);
+                      let totalMin = h * 60 + m - 5;
+                      if (totalMin < 0) totalMin += 24 * 60;
+                      const fh = Math.floor(totalMin / 60);
+                      const fm = totalMin % 60;
+                      return `${fh.toString().padStart(2, '0')}:${fm.toString().padStart(2, '0')}`;
+                    })()
+                  }) to ensure the perfect microclimate.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </GlowCard>
   );

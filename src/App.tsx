@@ -119,6 +119,26 @@ export default function App() {
     return generateInitialHistory(isSimMode ? initialESPState : { ...initialESPState, temperature: null });
   });
 
+  // Usual Arrival Time Scheduler State
+  const [arrivalSchedule, setArrivalSchedule] = useState(() => {
+    const saved = localStorage.getItem('kitten_arrival_schedule');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      enabled: false,
+      type: 'school' as 'school' | 'office' | 'custom',
+      time: '15:30', // Default (3:30 PM)
+    };
+  });
+
+  // Save arrival schedule on change
+  useEffect(() => {
+    localStorage.setItem('kitten_arrival_schedule', JSON.stringify(arrivalSchedule));
+  }, [arrivalSchedule]);
+
   // UI state controllers
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const [latency, setLatency] = useState<number | null>(null);
@@ -582,6 +602,38 @@ export default function App() {
     }
   };
 
+  // Check arrival pre-cooling schedule exactly 5 minutes before the arrival target
+  useEffect(() => {
+    if (!arrivalSchedule.enabled) return;
+
+    let lastTriggeredMinute = '';
+
+    const checkPreCooling = () => {
+      const now = new Date();
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const currentMinuteStr = `${currentHours}:${currentMinutes}`;
+
+      if (currentMinuteStr === lastTriggeredMinute) return;
+
+      const [schedHours, schedMinutes] = arrivalSchedule.time.split(':').map(Number);
+      const targetMin = schedHours * 60 + schedMinutes;
+      const currentMin = currentHours * 60 + currentMinutes;
+
+      // 5 minutes prior to arrival
+      if (currentMin === targetMin - 5) {
+        lastTriggeredMinute = currentMinuteStr;
+        
+        // Turn on fan to high speed (180 out of 255)
+        sendCommand('/fan?value=180', { fan: 180, auto: false }, `[Schedule] Arrival Pre-Cooling triggered! Fan automatically activated 5 minutes prior to scheduled arrival (${arrivalSchedule.time}).`);
+      }
+    };
+
+    checkPreCooling();
+    const interval = setInterval(checkPreCooling, 10000);
+    return () => clearInterval(interval);
+  }, [arrivalSchedule]);
+
   return (
     <div className={`min-h-screen pb-16 flex flex-col ${settings.lowLightMode ? 'brightness-90 saturate-75' : ''}`}>
       {/* 1. Header component */}
@@ -635,6 +687,8 @@ export default function App() {
               data={espData}
               onFanChange={handleFanChange}
               isLoading={isFetching}
+              arrivalSchedule={arrivalSchedule}
+              onChangeArrivalSchedule={setArrivalSchedule}
             />
 
             {/* Preloaded Automation Presets */}

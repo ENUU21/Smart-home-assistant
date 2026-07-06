@@ -87,6 +87,12 @@ const int FAN_PIN = 13;      // Pin for Fan Speed PWM Regulation (Connected to M
 const int DHT_PIN = 32;      // Digital pin connected to DHT11 (GPIO 32)
 const int MOTION_PIN = 27;   // PIR Motion sensor pin
 
+// L298N Motor Driver Direction Pins
+const int IN1 = 14;          // Motor Driver Input 1 (GPIO 14)
+// WARNING: Pin 26 conflicts with the I2S audio BCK pin if using the smart speaker.
+// If using the Bluetooth smart speaker audio, move IN2 to GPIO 15; otherwise, GPIO 26 is perfect!
+const int IN2 = 26;          // Motor Driver Input 2 (GPIO 26 / Fallback: GPIO 15)
+
 /* 
   COMBINED RGB LED / MONOCHROME LED WIRING DIAGRAM:
   You have connected all three RGB legs (Red, Green, Blue) of your LED together, and 
@@ -139,6 +145,12 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(MOTION_PIN, INPUT);
+
+  // Initialize L298N direction pins to spin motor forward
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
 
   // Initialize DHT sensor
   dht.begin();

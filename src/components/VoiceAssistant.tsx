@@ -92,7 +92,12 @@ export default function VoiceAssistant({
     let reply = "I parsed your command.";
     
     // 1. Match high-priority presets and system automation modes first
-    if (normalized.includes("movie")) {
+    if (normalized.includes("heading out")) {
+      updates.led = 0;
+      updates.fan = 0;
+      updates.auto = true;
+      reply = "Acknowledged. Activating Heading Out mode: shutting down lighting arrays and ventilation fan, and switching systems to Automatic microclimate mode.";
+    } else if (normalized.includes("movie")) {
       updates.led = 20;
       updates.fan = 0;
       updates.auto = false;
@@ -127,11 +132,16 @@ export default function VoiceAssistant({
       const numberMatch = normalized.match(/\d+/);
       if (numberMatch) {
         const val = parseInt(numberMatch[0], 10);
-        // Let's cap at 255
-        const constrainedVal = Math.min(255, Math.max(0, val));
+        // Treat as percentage if <= 100, otherwise direct analog value (0-255)
+        let constrainedVal;
+        if (val <= 100) {
+          constrainedVal = Math.round(val * 2.55);
+        } else {
+          constrainedVal = Math.min(255, val);
+        }
         updates.fan = constrainedVal;
         updates.auto = false;
-        reply = `Setting the ventilation fan power level to ${constrainedVal} [Manual Mode].`;
+        reply = `Setting the ventilation fan power level to ${constrainedVal} (${val <= 100 ? val : Math.round((constrainedVal/255)*100)}%) [Manual Mode].`;
       } else if (normalized.includes("on") || normalized.includes("active") || normalized.includes("start") || normalized.includes("run")) {
         updates.fan = 255; // Full power digital switch
         updates.auto = false;
@@ -147,10 +157,16 @@ export default function VoiceAssistant({
       const numberMatch = normalized.match(/\d+/);
       if (numberMatch) {
         const val = parseInt(numberMatch[0], 10);
-        const constrainedVal = Math.min(255, Math.max(0, val));
+        // Treat as percentage if <= 100, otherwise direct analog value (0-255)
+        let constrainedVal;
+        if (val <= 100) {
+          constrainedVal = Math.round(val * 2.55);
+        } else {
+          constrainedVal = Math.min(255, val);
+        }
         updates.led = constrainedVal;
         updates.auto = false;
-        reply = `Setting the light brightness level to ${constrainedVal} (${Math.round((constrainedVal/255)*100)}%) [Manual Mode].`;
+        reply = `Setting the light brightness level to ${constrainedVal} (${val <= 100 ? val : Math.round((constrainedVal/255)*100)}%) [Manual Mode].`;
       } else if (normalized.includes("on")) {
         updates.led = 255;
         updates.auto = false;

@@ -261,8 +261,10 @@ Guidelines:
 - Transcribe the user's spoken words accurately into "transcript".
 - Formulate a witty, polite, futuristic response in "reply" (refer to yourself as KITTEN, and match the high-tech, glassmorphic mood).
 - If they explicitly ask to activate, switch to, or load an automation mode/profile, set "mode" to one of: 'manual', 'auto', 'study', 'sleep', 'movie', 'gaming'.
-- If they ask to turn lights on, off, or dim/brighten them manually (without mentioning a profile), set "led" to a value between 0 (completely off) and 255 (maximum glow).
-- If they ask to speed up, slow down, or stop the cooling/ventilation fan manually, set "fan" to a value between 0 (off) and 255 (maximum speed).
+- If the phrase "heading out" is detected or they are leaving the house, set "led" to 0, "fan" to 0, and "auto" to true.
+- If they specify a number for the light or fan (e.g. "fan 50" or "light 50"), always assume they want a percentage (0-100%). Map this percentage value to its 0-255 analog scale equivalent (e.g., 50% becomes 128, 100% becomes 255, 10% becomes 26). Do NOT set the fan/led directly to the number 50 unless they say "analog 50".
+- If they ask to turn lights on, off, or dim/brighten them manually (without mentioning a profile), set "led" to a value between 0 (completely off) and 255 (maximum glow) using the percentage rule.
+- If they ask to speed up, slow down, or stop the cooling/ventilation fan manually, set "fan" to a value between 0 (off) and 255 (maximum speed) using the percentage rule.
 - If they ask to switch to auto, automatic, or manual mode generally, set "auto" to true or false.
 - If they ask to play music, play a song, stop music, or turn on the speakers:
   - Return "playMusic" with "songName" (e.g., "Synthwave Sunset", "Cozy Lofi", "Cyberpunk Overdrive") and "play" as true.
