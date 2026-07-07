@@ -243,19 +243,28 @@ void fetchControlState() {
       if (autoMode) {
         float t = dht.readTemperature();
         bool m = digitalRead(MOTION_PIN) == HIGH;
-        if (!isnan(t)) {
-          t -= 2.0; // Apply offset of -2C
-          // Dynamic thermostat speed regulation based on actual temperatures
-          if (t >= 28.0) {
-            fanVal = 255; // 100% full speed if hot
-          } else if (t >= 26.5) {
-            fanVal = 160; // ~63% medium-high speed if warm
-          } else if (t >= 25.5) {
-            fanVal = 90;  // ~35% gentle low speed if mild
-          } else if (t < 25.0) {
-            fanVal = 0;   // Shut OFF completely if cool
+        
+        // Fan control rules: only turn on if motion is detected AND temperature is warm/hot
+        if (m) {
+          if (!isnan(t)) {
+            t -= 2.0; // Apply offset of -2C
+            // Dynamic thermostat speed regulation based on actual temperatures
+            if (t >= 28.0) {
+              fanVal = 255; // 100% full speed if hot
+            } else if (t >= 26.5) {
+              fanVal = 160; // ~63% medium-high speed if warm
+            } else if (t >= 25.5) {
+              fanVal = 90;  // ~35% gentle low speed if mild
+            } else {
+              fanVal = 0;   // Shut OFF completely if cool (< 25.5C)
+            }
+          } else {
+            fanVal = 90;    // Fallback gentle ventilation if DHT sensor fails but motion is active
           }
+        } else {
+          fanVal = 0;       // Shut off completely if no occupancy detected to conserve power
         }
+
         if (m) {
           ledVal = 120;   // Brighten LED if motion is active
         } else {
