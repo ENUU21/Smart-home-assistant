@@ -457,19 +457,42 @@ export default function App() {
           let nextFan = prev.fan;
 
           if (prev.auto) {
-            // Cool down if hot
-            if (nextTemp >= 30 && prev.fan < 180) {
-              nextFan = 180;
-              addLog('Auto AI: Room is hot (>=30°C). Overclocking climate ventilation to 70%.', 'info');
-            } else if (nextTemp < 24 && prev.fan > 60) {
-              nextFan = 60;
-              addLog('Auto AI: Thermal comfortable levels restored. Lowering ventilation.', 'info');
+            // Fan control rules: only turn on if motion is detected AND temperature is NOT below 24°C
+            if (prev.motion) {
+              if (nextTemp < 24) {
+                if (prev.fan > 0) {
+                  nextFan = 0;
+                  addLog('Auto AI: Occupancy registered but temperature is cool (<24°C). Keeping fan off.', 'info');
+                }
+              } else {
+                // Temp is >= 24°C, turn on the fan (speed depending on temp)
+                if (nextTemp >= 30) {
+                  if (prev.fan !== 180) {
+                    nextFan = 180;
+                    addLog('Auto AI: Occupancy registered and room is hot (>=30°C). Overclocking climate ventilation to 70%.', 'info');
+                  }
+                } else {
+                  if (prev.fan !== 60) {
+                    nextFan = 60;
+                    addLog('Auto AI: Occupancy registered and temperature is warm (>=24°C). Engaging moderate ventilation.', 'info');
+                  }
+                }
+              }
+            } else {
+              // No motion detected, fan must be OFF
+              if (prev.fan > 0) {
+                nextFan = 0;
+                addLog('Auto AI: No motion detected. Shutting down fan to conserve energy.', 'info');
+              }
             }
 
             // Save energy if room is occupied but comfortable
             if (prev.motion && prev.led < 100) {
               nextLed = 120;
               addLog('Auto AI: Occupancy registered in dark room. Engaging 45% LED brightness.', 'info');
+            } else if (!prev.motion && prev.led > 0) {
+              nextLed = 0;
+              addLog('Auto AI: Room is empty. Turning off LEDs to conserve power.', 'info');
             }
           }
 
@@ -705,18 +728,21 @@ export default function App() {
     try {
       const startTime = performance.now();
       
-      // Send separate API requests for each changed control to ESP32
+      // Send separate API requests for each changed control to ESP32 with 200ms safety delay
       if (updates.auto !== undefined) {
         const url = `http://${cleanIp}/auto?enabled=${updates.auto}`;
         await fetch(url, { mode: 'no-cors' });
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       if (updates.led !== undefined) {
         const url = `http://${cleanIp}/led?value=${updates.led}`;
         await fetch(url, { mode: 'no-cors' });
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       if (updates.fan !== undefined) {
         const url = `http://${cleanIp}/fan?value=${updates.fan}`;
         await fetch(url, { mode: 'no-cors' });
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       const endTime = performance.now();
