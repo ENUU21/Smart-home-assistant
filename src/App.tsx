@@ -915,6 +915,7 @@ export default function App() {
               showWeeklyModal={showWeeklyReportModal}
               onOpenWeeklyModal={() => setShowWeeklyReportModal(true)}
               onCloseWeeklyModal={() => setShowWeeklyReportModal(false)}
+              onOpenWeather={() => setShowWeatherModal(true)}
             />
 
             {/* Audit log terminal list */}

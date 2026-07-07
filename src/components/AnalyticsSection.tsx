@@ -7,13 +7,14 @@ import { useState } from 'react';
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { HistoryDataPoint } from '../types';
 import GlowCard from './GlowCard';
-import { LineChart as ChartIcon, Zap, Thermometer, TrendingUp, BarChart3, X, Award, Sparkles, DollarSign, Leaf, Calendar, Lightbulb } from 'lucide-react';
+import { LineChart as ChartIcon, Zap, Thermometer, TrendingUp, BarChart3, X, Award, Sparkles, DollarSign, Leaf, Calendar, Lightbulb, CloudSun } from 'lucide-react';
 
 interface AnalyticsSectionProps {
   historyData: HistoryDataPoint[];
   showWeeklyModal?: boolean;
   onOpenWeeklyModal?: () => void;
   onCloseWeeklyModal?: () => void;
+  onOpenWeather?: () => void;
 }
 
 export default function AnalyticsSection({
@@ -21,6 +22,7 @@ export default function AnalyticsSection({
   showWeeklyModal,
   onOpenWeeklyModal,
   onCloseWeeklyModal,
+  onOpenWeather,
 }: AnalyticsSectionProps) {
   const [activeChart, setActiveChart] = useState<'climate' | 'actuators'>('climate');
   const [localShowWeekly, setLocalShowWeekly] = useState<boolean>(false);
@@ -71,15 +73,25 @@ export default function AnalyticsSection({
         glowColor="none"
         className="md:col-span-3 flex flex-col min-h-[380px]"
         headerAction={
-          <div className="flex items-center gap-2">
-            <button
-              id="btn-open-weekly-report"
-              onClick={openWeekly}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-md font-mono text-[10px] font-bold transition-all bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 text-cyan-400 hover:from-cyan-500/20 hover:to-blue-500/20 cursor-pointer"
-            >
-              <BarChart3 className="w-3 h-3 text-cyan-400" />
-              <span>WEEKLY REPORT</span>
-            </button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                id="btn-open-weekly-report"
+                onClick={openWeekly}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-md font-mono text-[10px] font-bold transition-all bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 text-cyan-400 hover:from-cyan-500/20 hover:to-blue-500/20 cursor-pointer animate-pulse"
+              >
+                <BarChart3 className="w-3 h-3 text-cyan-400" />
+                <span>WEEKLY REPORT</span>
+              </button>
+              <button
+                id="btn-open-weather-station"
+                onClick={onOpenWeather}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-md font-mono text-[10px] font-bold transition-all bg-gradient-to-r from-sky-500/10 to-teal-500/10 border border-sky-500/20 text-sky-400 hover:from-sky-500/20 hover:to-teal-500/20 cursor-pointer"
+              >
+                <CloudSun className="w-3 h-3 text-sky-400" />
+                <span>WEATHER STATION</span>
+              </button>
+            </div>
             <div className="flex rounded-lg border border-slate-800 bg-slate-950/40 p-1">
               <button
                 id="btn-switch-chart-climate"
