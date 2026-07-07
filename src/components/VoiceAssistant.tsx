@@ -112,25 +112,21 @@ export default function VoiceAssistant({
       updates.auto = true;
       reply = "Acknowledged. Activating Heading Out mode: shutting down lighting arrays and ventilation fan, and switching systems to Automatic microclimate mode.";
     } else if (normalized.includes("movie")) {
-      updates.led = 20;
-      updates.fan = 0;
-      updates.auto = false;
-      reply = "Activating movie night preset: Lights dimmed low, ventilation fan silenced.";
+      const { logMsg, ...stateUpdates } = getPresetStateUpdates('movie');
+      Object.assign(updates, stateUpdates);
+      reply = "Activating movie night preset: Theater lighting levels set, quiet ventilation running.";
     } else if (normalized.includes("gaming") || normalized.includes("game")) {
-      updates.led = 255;
-      updates.fan = 255;
-      updates.auto = false;
-      reply = "Activating gaming preset: Full LED glow and maximum fan power.";
+      const { logMsg, ...stateUpdates } = getPresetStateUpdates('gaming');
+      Object.assign(updates, stateUpdates);
+      reply = "Activating gaming preset: Neon glow maximized (100%), active room cooling activated.";
     } else if (normalized.includes("sleep")) {
-      updates.led = 0;
-      updates.fan = 0;
-      updates.auto = false;
-      reply = "Activating bedtime sleep preset: LED off and fan shut down.";
+      const { logMsg, ...stateUpdates } = getPresetStateUpdates('sleep');
+      Object.assign(updates, stateUpdates);
+      reply = "Activating bedtime sleep preset: Environment dimmed, silent ventilation enabled.";
     } else if (normalized.includes("study") || normalized.includes("work")) {
-      updates.led = 150;
-      updates.fan = 80;
-      updates.auto = false;
-      reply = "Activating productive study preset: Focus lights at 150, gentle ventilation fan.";
+      const { logMsg, ...stateUpdates } = getPresetStateUpdates('study');
+      Object.assign(updates, stateUpdates);
+      reply = "Activating productive study preset: Focus lights at 200 (80%), gentle ventilation fan at 100 (40%).";
     } else if (normalized.includes("auto") || normalized.includes("automatic") || normalized.includes("manual")) {
       if (normalized.includes("off") || normalized.includes("disable") || normalized.includes("manual")) {
         updates.auto = false;
