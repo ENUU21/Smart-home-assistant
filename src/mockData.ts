@@ -157,4 +157,5 @@ export const mockVoiceCommands = [
   { command: 'Activate sleep mode preset', response: 'Initiating sleep cycle. Dimming lights and lowering fan speed.', mode: 'sleep' as PresetMode },
   { command: 'Activate gaming profile', response: 'Overclocking visual style. High cooling and full rgb active.', mode: 'gaming' as PresetMode },
   { command: 'Enable auto automation', response: 'Handing over environmental controls to KITTEN Auto AI.', mode: 'auto' as PresetMode },
+  { command: 'Kitten swear', response: 'Initiating verbal defense array. Discharging unfiltered frustration matrices.' },
 ];

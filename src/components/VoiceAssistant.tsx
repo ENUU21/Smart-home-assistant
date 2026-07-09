@@ -57,6 +57,7 @@ interface VoiceAssistantProps {
   isLoading: boolean;
   onOpenWeeklyReport?: () => void;
   onOpenWeather?: () => void;
+  onOpenKittenSwear?: () => void;
 }
 
 export default function VoiceAssistant({
@@ -67,6 +68,7 @@ export default function VoiceAssistant({
   isLoading,
   onOpenWeeklyReport,
   onOpenWeather,
+  onOpenKittenSwear,
 }: VoiceAssistantProps) {
   const [voiceStatus, setVoiceStatus] = useState<'IDLE' | 'LISTENING' | 'PROCESSING'>('IDLE');
   const [lastCommand, setLastCommand] = useState<string>('System initialized.');
@@ -105,6 +107,11 @@ export default function VoiceAssistant({
       reply = "Acquiring real-time meteorological station logs. Opening Weather Station panel now.";
       if (onOpenWeather) {
         setTimeout(() => onOpenWeather(), 200);
+      }
+    } else if (normalized.includes("kitten swear") || normalized.includes("swear")) {
+      reply = "Initiating verbal defense array. Discharging unfiltered frustration matrices.";
+      if (onOpenKittenSwear) {
+        setTimeout(() => onOpenKittenSwear(), 200);
       }
     } else if (normalized.includes("heading out")) {
       updates.led = 0;
@@ -651,6 +658,10 @@ export default function VoiceAssistant({
           if (onOpenWeather) {
             setTimeout(() => onOpenWeather(), 200);
           }
+        } else if (transcriptLower.includes("kitten swear") || transcriptLower.includes("swear")) {
+          if (onOpenKittenSwear) {
+            setTimeout(() => onOpenKittenSwear(), 200);
+          }
         }
 
         // Propagate smart home state updates
@@ -732,6 +743,12 @@ export default function VoiceAssistant({
           updates,
           `Preset simulation: "${cmdObj.command}". Reply: "${cmdObj.response}"`
         );
+
+        if (cmdObj.command === 'Kitten swear') {
+          if (onOpenKittenSwear) {
+            setTimeout(() => onOpenKittenSwear(), 200);
+          }
+        }
 
         // Handle preset music trigger
         if (cmdObj.command.toLowerCase().includes('sleep')) {

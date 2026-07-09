@@ -33,6 +33,7 @@ import ActivityFeed from './components/ActivityFeed';
 import SystemHealth from './components/SystemHealth';
 import SettingsPanel from './components/SettingsPanel';
 import WeatherModal from './components/WeatherModal';
+import KittenSwearModal from './components/KittenSwearModal';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -252,6 +253,7 @@ export default function App() {
   const [showDocsModal, setShowDocsModal] = useState<boolean>(false);
   const [showWeeklyReportModal, setShowWeeklyReportModal] = useState<boolean>(false);
   const [showWeatherModal, setShowWeatherModal] = useState<boolean>(false);
+  const [showSwearModal, setShowSwearModal] = useState<boolean>(false);
 
   // References to keep state available inside polling callbacks
   const settingsRef = useRef(settings);
@@ -901,6 +903,7 @@ export default function App() {
               isLoading={isFetching}
               onOpenWeeklyReport={() => setShowWeeklyReportModal(true)}
               onOpenWeather={() => setShowWeatherModal(true)}
+              onOpenKittenSwear={() => setShowSwearModal(true)}
             />
 
             {/* Hardware statistics monitor */}
@@ -1095,6 +1098,13 @@ void setup() {
         isOpen={showWeatherModal}
         onClose={() => setShowWeatherModal(false)}
         indoorData={espData}
+        addLog={addLog}
+      />
+
+      {/* 4. KITTEN SWEAR VERBAL CONTRA-MEASURES MODAL */}
+      <KittenSwearModal
+        isOpen={showSwearModal}
+        onClose={() => setShowSwearModal(false)}
         addLog={addLog}
       />
     </div>
