@@ -800,31 +800,32 @@ export default function VoiceAssistant({
           `Preset simulation: "${cmdObj.command}". Reply: "${cmdObj.response}"`
         );
 
+        const cmdLower = cmdObj.command.toLowerCase();
         if (cmdObj.command === 'Kitten swear') {
           if (onOpenKittenSwear) {
             setTimeout(() => onOpenKittenSwear(), 200);
           }
-        } else if (cmdObj.command.includes('explode')) {
+        } else if (cmdLower.includes('explode')) {
           if (onCreativeMode) {
             setTimeout(() => onCreativeMode('explode'), 200);
           }
-        } else if (cmdObj.command.includes('disco')) {
+        } else if (cmdLower.includes('disco') || cmdLower.includes('party')) {
           if (onCreativeMode) {
             setTimeout(() => onCreativeMode('disco'), 200);
           }
-        } else if (cmdObj.command.includes('ghost') || cmdObj.command.includes('haunted')) {
+        } else if (cmdLower.includes('ghost') || cmdLower.includes('haunted')) {
           if (onCreativeMode) {
             setTimeout(() => onCreativeMode('ghost'), 200);
           }
-        } else if (cmdObj.command.includes('catnip') || cmdObj.command.includes('hyper')) {
+        } else if (cmdLower.includes('catnip') || cmdLower.includes('hyper')) {
           if (onCreativeMode) {
             setTimeout(() => onCreativeMode('hyper'), 200);
           }
-        } else if (cmdObj.command.includes('purr')) {
+        } else if (cmdLower.includes('purr')) {
           if (onCreativeMode) {
             setTimeout(() => onCreativeMode('purr'), 200);
           }
-        } else if (cmdObj.command.includes('Reset') || cmdObj.command.includes('normal')) {
+        } else if (cmdLower.includes('reset') || cmdLower.includes('normal')) {
           if (onCreativeMode) {
             setTimeout(() => onCreativeMode('normal'), 200);
           }
