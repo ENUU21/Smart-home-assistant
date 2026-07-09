@@ -158,4 +158,10 @@ export const mockVoiceCommands = [
   { command: 'Activate gaming profile', response: 'Overclocking visual style. High cooling and full rgb active.', mode: 'gaming' as PresetMode },
   { command: 'Enable auto automation', response: 'Handing over environmental controls to KITTEN Auto AI.', mode: 'auto' as PresetMode },
   { command: 'Kitten swear', response: 'Initiating verbal defense array. Discharging unfiltered frustration matrices.' },
+  { command: 'Detonate core (explode)', response: 'WARNING: THERMO-FUSION DETONATOR ENGAGED! DETONATION IN 3 SECONDS!' },
+  { command: 'Engaging kitten disco party', response: 'ENGAGING DISCO PARTY PROTOCOL 9! FLASHING RGB ARRAY AND INJECTING RETRO CHORD PROGRESSIONS!' },
+  { command: 'Trigger haunted house ghost', response: 'EMERGENCY: ECTOPLASMIC PRESENCE DETECTED. SYSTEM COOLING FLUCTUATION ACTIVE.' },
+  { command: 'Hyper active catnip mode', response: 'HYPER CATNIP OVERCLOCK ACTIVE! RUNNING KITTEN CALCULATORS AT LIGHTSPEED.' },
+  { command: 'Feline purr calming wave', response: 'ACTIVATING LOW-FREQUENCY PURR HUMIDIFIER HARMONICS.' },
+  { command: 'Reset creative modes', response: 'Restoring default environmental balance. All creative sub-systems deactivated.' },
 ];

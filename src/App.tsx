@@ -34,6 +34,7 @@ import SystemHealth from './components/SystemHealth';
 import SettingsPanel from './components/SettingsPanel';
 import WeatherModal from './components/WeatherModal';
 import KittenSwearModal from './components/KittenSwearModal';
+import CreativeModesOverlay from './components/CreativeModesOverlay';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -255,6 +256,14 @@ export default function App() {
   const [showWeatherModal, setShowWeatherModal] = useState<boolean>(false);
   const [showSwearModal, setShowSwearModal] = useState<boolean>(false);
 
+  // Creative Modes State Variables
+  const [isExploding, setIsExploding] = useState<boolean>(false);
+  const [isDestroyed, setIsDestroyed] = useState<boolean>(false);
+  const [isDisco, setIsDisco] = useState<boolean>(false);
+  const [isHaunted, setIsHaunted] = useState<boolean>(false);
+  const [isHyper, setIsHyper] = useState<boolean>(false);
+  const [isPurring, setIsPurring] = useState<boolean>(false);
+
   // References to keep state available inside polling callbacks
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -278,6 +287,36 @@ export default function App() {
       // Uses simple fallback badge alert
       console.log(`[KITTEN ALERT] ${message}`);
     }
+  };
+
+  const handleCreativeModeTrigger = (mode: 'explode' | 'disco' | 'ghost' | 'hyper' | 'purr' | 'normal') => {
+    setIsExploding(false);
+    setIsDisco(false);
+    setIsHaunted(false);
+    setIsHyper(false);
+    setIsPurring(false);
+
+    if (mode === 'explode') {
+      setIsExploding(true);
+    } else if (mode === 'disco') {
+      setIsDisco(true);
+    } else if (mode === 'ghost') {
+      setIsHaunted(true);
+    } else if (mode === 'hyper') {
+      setIsHyper(true);
+    } else if (mode === 'purr') {
+      setIsPurring(true);
+    }
+  };
+
+  const handleRebuildCore = () => {
+    setIsDestroyed(false);
+    setIsExploding(false);
+    setIsDisco(false);
+    setIsHaunted(false);
+    setIsHyper(false);
+    setIsPurring(false);
+    addLog("🔧 Core rebuilt successfully. Rebooting KITTEN stack... Status online.", "success");
   };
 
   // 2b. Firestore Live Sync & Initialization
@@ -904,6 +943,7 @@ export default function App() {
               onOpenWeeklyReport={() => setShowWeeklyReportModal(true)}
               onOpenWeather={() => setShowWeatherModal(true)}
               onOpenKittenSwear={() => setShowSwearModal(true)}
+              onCreativeMode={handleCreativeModeTrigger}
             />
 
             {/* Hardware statistics monitor */}
@@ -1106,6 +1146,23 @@ void setup() {
         isOpen={showSwearModal}
         onClose={() => setShowSwearModal(false)}
         addLog={addLog}
+      />
+
+      {/* 5. CREATIVE FUN VOICE MODES OVERLAYS */}
+      <CreativeModesOverlay
+        isExploding={isExploding}
+        isDestroyed={isDestroyed}
+        isDisco={isDisco}
+        isHaunted={isHaunted}
+        isHyper={isHyper}
+        isPurring={isPurring}
+        onRebuildCore={handleRebuildCore}
+        onExplodeComplete={() => {
+          setIsExploding(false);
+          setIsDestroyed(true);
+        }}
+        addLog={addLog}
+        setEspData={setEspData}
       />
     </div>
   );

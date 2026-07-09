@@ -58,6 +58,7 @@ interface VoiceAssistantProps {
   onOpenWeeklyReport?: () => void;
   onOpenWeather?: () => void;
   onOpenKittenSwear?: () => void;
+  onCreativeMode?: (mode: 'explode' | 'disco' | 'ghost' | 'hyper' | 'purr' | 'normal') => void;
 }
 
 export default function VoiceAssistant({
@@ -69,6 +70,7 @@ export default function VoiceAssistant({
   onOpenWeeklyReport,
   onOpenWeather,
   onOpenKittenSwear,
+  onCreativeMode,
 }: VoiceAssistantProps) {
   const [voiceStatus, setVoiceStatus] = useState<'IDLE' | 'LISTENING' | 'PROCESSING'>('IDLE');
   const [lastCommand, setLastCommand] = useState<string>('System initialized.');
@@ -112,6 +114,36 @@ export default function VoiceAssistant({
       reply = "Initiating verbal defense array. Discharging unfiltered frustration matrices.";
       if (onOpenKittenSwear) {
         setTimeout(() => onOpenKittenSwear(), 200);
+      }
+    } else if (normalized.includes("explode")) {
+      reply = "WARNING: CORE THERMO-FUSION DETONATOR ENGAGED! SELF DESTRUCTION IN 3 SECONDS!";
+      if (onCreativeMode) {
+        setTimeout(() => onCreativeMode('explode'), 200);
+      }
+    } else if (normalized.includes("disco") || normalized.includes("party")) {
+      reply = "ENGAGING DISCO PARTY PROTOCOL 9! FLASHING RGB ARRAY AND INJECTING RETRO CHORD PROGRESSIONS!";
+      if (onCreativeMode) {
+        setTimeout(() => onCreativeMode('disco'), 200);
+      }
+    } else if (normalized.includes("ghost") || normalized.includes("haunted")) {
+      reply = "EMERGENCY: ECTOPLASMIC PRESENCE DETECTED. SYSTEM COOLING FLUCTUATION ACTIVE.";
+      if (onCreativeMode) {
+        setTimeout(() => onCreativeMode('ghost'), 200);
+      }
+    } else if (normalized.includes("catnip") || normalized.includes("hyper")) {
+      reply = "HYPER CATNIP OVERCLOCK ACTIVE! RUNNING KITTEN CALCULATORS AT LIGHTSPEED.";
+      if (onCreativeMode) {
+        setTimeout(() => onCreativeMode('hyper'), 200);
+      }
+    } else if (normalized.includes("purr") || normalized.includes("soothe")) {
+      reply = "ACTIVATING LOW-FREQUENCY PURR HUMIDIFIER HARMONICS.";
+      if (onCreativeMode) {
+        setTimeout(() => onCreativeMode('purr'), 200);
+      }
+    } else if (normalized.includes("stop") || normalized.includes("normal") || normalized.includes("reset") || normalized.includes("reboot")) {
+      reply = "Restoring default environmental balance. All creative sub-systems deactivated.";
+      if (onCreativeMode) {
+        setTimeout(() => onCreativeMode('normal'), 200);
       }
     } else if (normalized.includes("heading out")) {
       updates.led = 0;
@@ -662,6 +694,30 @@ export default function VoiceAssistant({
           if (onOpenKittenSwear) {
             setTimeout(() => onOpenKittenSwear(), 200);
           }
+        } else if (transcriptLower.includes("explode")) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('explode'), 200);
+          }
+        } else if (transcriptLower.includes("disco") || transcriptLower.includes("party")) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('disco'), 200);
+          }
+        } else if (transcriptLower.includes("ghost") || transcriptLower.includes("haunted")) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('ghost'), 200);
+          }
+        } else if (transcriptLower.includes("catnip") || transcriptLower.includes("hyper")) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('hyper'), 200);
+          }
+        } else if (transcriptLower.includes("purr") || transcriptLower.includes("soothe")) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('purr'), 200);
+          }
+        } else if (transcriptLower.includes("stop") || transcriptLower.includes("normal") || transcriptLower.includes("reset") || transcriptLower.includes("reboot")) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('normal'), 200);
+          }
         }
 
         // Propagate smart home state updates
@@ -747,6 +803,30 @@ export default function VoiceAssistant({
         if (cmdObj.command === 'Kitten swear') {
           if (onOpenKittenSwear) {
             setTimeout(() => onOpenKittenSwear(), 200);
+          }
+        } else if (cmdObj.command.includes('explode')) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('explode'), 200);
+          }
+        } else if (cmdObj.command.includes('disco')) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('disco'), 200);
+          }
+        } else if (cmdObj.command.includes('ghost') || cmdObj.command.includes('haunted')) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('ghost'), 200);
+          }
+        } else if (cmdObj.command.includes('catnip') || cmdObj.command.includes('hyper')) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('hyper'), 200);
+          }
+        } else if (cmdObj.command.includes('purr')) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('purr'), 200);
+          }
+        } else if (cmdObj.command.includes('Reset') || cmdObj.command.includes('normal')) {
+          if (onCreativeMode) {
+            setTimeout(() => onCreativeMode('normal'), 200);
           }
         }
 
