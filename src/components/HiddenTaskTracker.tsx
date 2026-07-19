@@ -11,7 +11,7 @@ import {
   Activity, Award, ArrowLeft, Trash2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
-import { saveTaskCompletion, getTaskCompletions } from '../lib/firebase';
+import { saveTaskCompletion, getTaskCompletions, clearTaskCompletions } from '../lib/firebase';
 
 interface HiddenTaskTrackerProps {
   isOpen: boolean;
@@ -137,8 +137,8 @@ export default function HiddenTaskTracker({
 
     if (firestoreSyncEnabled) {
       try {
-        // Overwrite today's count to 0 in Firestore as well
-        await saveTaskCompletion(taskName, todayStr, 0);
+        // Clear all completion logs from Firestore
+        await clearTaskCompletions(taskName);
       } catch (err) {
         console.warn('Failed to reset in Firestore:', err);
       }
@@ -146,29 +146,42 @@ export default function HiddenTaskTracker({
     addLog('All tracker logs have been reset to zero.', 'info');
   };
 
-  // Streak Calculator: Clean Streak (Consecutive days with 0 occurrences)
+  // Streak Calculator: Clean Streak (Consecutive COMPLETED days with 0 occurrences)
   const streaks = useMemo(() => {
     const keys = Object.keys(completions).sort();
     if (keys.length === 0) {
       return { current: 0, longest: 0 };
     }
 
-    const today = new Date();
-    const start = new Date(keys[0]);
+    const firstTrackedStr = keys[0];
+
+    // If the only tracked date is today, and today is still going, we don't have any completed tracked days yet.
+    if (firstTrackedStr === todayStr) {
+      return { current: 0, longest: 0 };
+    }
+
+    // Get yesterday's date
+    const today = new Date(todayStr);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    // Generate consecutive dates from firstTrackedStr to yesterdayStr (completed days)
+    const completedDates: string[] = [];
+    const cur = new Date(firstTrackedStr);
+    const end = new Date(yesterdayStr);
     
-    // Generate all consecutive dates between start date and today
-    const dateList: string[] = [];
-    const cur = new Date(start);
-    while (cur <= today) {
-      dateList.push(cur.toISOString().split('T')[0]);
+    while (cur <= end) {
+      completedDates.push(cur.toISOString().split('T')[0]);
       cur.setDate(cur.getDate() + 1);
     }
 
-    // Calculate Longest Clean Streak
+    // Calculate Longest Clean Streak of COMPLETED days
     let longest = 0;
     let tempStreak = 0;
 
-    dateList.forEach((dStr) => {
+    completedDates.forEach((dStr) => {
+      // If a day is in the completed range but not explicitly recorded, we assume it's clean (0 occurrences)
       const val = completions[dStr] === undefined ? 0 : completions[dStr];
       if (val === 0) {
         tempStreak++;
@@ -180,28 +193,23 @@ export default function HiddenTaskTracker({
       }
     });
 
-    // Calculate Current Clean Streak walking backwards from today
+    // Calculate Current Clean Streak of COMPLETED days (walking backwards from yesterday)
     let current = 0;
-    const backCursor = new Date();
-    const offset = backCursor.getTimezoneOffset();
-    const localNow = new Date(backCursor.getTime() - (offset * 60 * 1000));
-    const localCursor = new Date(localNow);
-
-    while (true) {
-      const dKey = localCursor.toISOString().split('T')[0];
-      const val = completions[dKey] !== undefined ? completions[dKey] : 0;
-      if (val === 0) {
-        current++;
-        localCursor.setDate(localCursor.getDate() - 1);
-      } else {
-        break;
-      }
-      if (current > 371) break; // Guard limit
-    }
-
-    // If today is not clean, current streak is strictly 0
+    
+    // If today has any occurrences, the current streak is instantly broken
     if ((completions[todayStr] || 0) > 0) {
       current = 0;
+    } else {
+      // Walk backwards from yesterdayStr through completed tracked days
+      for (let i = completedDates.length - 1; i >= 0; i--) {
+        const dStr = completedDates[i];
+        const val = completions[dStr] === undefined ? 0 : completions[dStr];
+        if (val === 0) {
+          current++;
+        } else {
+          break;
+        }
+      }
     }
 
     return { current, longest };
@@ -322,28 +330,39 @@ export default function HiddenTaskTracker({
     return weeks;
   }, [completions]);
 
-  // YEARLY STATISTICS
+  // YEARLY STATISTICS (Strictly within actual tracking range, up to today)
   const yearlyStats = useMemo(() => {
-    let totalOccurrences = 0;
-    let cleanDays = 0;
-    let totalTrackedDays = 0;
+    const keys = Object.keys(completions).sort();
+    if (keys.length === 0) {
+      return { totalOccurrences: 0, cleanDays: 0, totalTrackedDays: 0 };
+    }
 
-    yearlyReportWeeks.forEach((week) => {
-      week.forEach((day) => {
-        totalTrackedDays++;
-        totalOccurrences += day.count;
-        if (day.count === 0) {
-          cleanDays++;
-        }
-      });
-    });
+    const firstTrackedStr = keys[0];
+    const today = new Date(todayStr);
+    const start = new Date(firstTrackedStr);
+    
+    let totalTrackedDays = 0;
+    let cleanDays = 0;
+    let totalOccurrences = 0;
+
+    const cur = new Date(start);
+    while (cur <= today) {
+      const dStr = cur.toISOString().split('T')[0];
+      const count = completions[dStr] || 0;
+      totalTrackedDays++;
+      totalOccurrences += count;
+      if (count === 0) {
+        cleanDays++;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
 
     return {
       totalOccurrences,
       cleanDays,
       totalTrackedDays
     };
-  }, [yearlyReportWeeks]);
+  }, [completions, todayStr]);
 
   // Map count to color scale for Yearly Heatmap: simple, minimal representation
   const getHeatmapColor = (count: number) => {

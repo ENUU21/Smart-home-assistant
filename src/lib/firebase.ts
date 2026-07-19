@@ -475,4 +475,23 @@ export async function getTaskCompletions(taskName: string): Promise<TaskCompleti
   }, OperationType.GET, path);
 }
 
+/**
+ * Deletes all completions for a specific task name to allow clean reset.
+ */
+export async function clearTaskCompletions(taskName: string): Promise<void> {
+  const path = 'tasks';
+  return runWithFallback(async (dbInstance) => {
+    const tasksCollection = collection(dbInstance, path);
+    const querySnapshot = await getDocs(tasksCollection);
+    const deletePromises: Promise<void>[] = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.taskName === taskName) {
+        deletePromises.push(deleteDoc(doc(dbInstance, path, docSnap.id)));
+      }
+    });
+    await Promise.all(deletePromises);
+  }, OperationType.DELETE, path);
+}
+
 export { currentDb as db };
