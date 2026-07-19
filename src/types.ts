@@ -5,9 +5,11 @@
 
 export interface ESP32Data {
   temperature: number | null;
+  humidity: number | null;
   motion: boolean;
   led: number; // 0-255
   fan: number; // 0-255
+  humidifier: number; // 0-255
   voice: boolean; // Voice wake status or activated
   auto: boolean; // Auto mode vs manual
 }
@@ -30,9 +32,11 @@ export interface ActivityLog {
 export interface HistoryDataPoint {
   time: string;
   temperature: number | null;
+  humidity: number | null;
   motion: number; // 0 or 1 for chart
   led: number;
   fan: number;
+  humidifier: number;
 }
 
 export interface Song {
@@ -45,6 +49,12 @@ export interface Song {
 }
 
 export type PresetMode = 'manual' | 'auto' | 'study' | 'sleep' | 'movie' | 'gaming';
+
+export interface TaskCompletion {
+  date: string; // "YYYY-MM-DD"
+  count: number;
+  taskName: string;
+}
 
 export interface DashboardSettings {
   espIpAddress: string;

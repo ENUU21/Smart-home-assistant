@@ -26,6 +26,7 @@ import Header from './components/Header';
 import EnvironmentSection from './components/EnvironmentSection';
 import LightingControl from './components/LightingControl';
 import FanControl from './components/FanControl';
+import HumidifierControl from './components/HumidifierControl';
 import VoiceAssistant from './components/VoiceAssistant';
 import AutomationSection from './components/AutomationSection';
 import AnalyticsSection from './components/AnalyticsSection';
@@ -35,6 +36,7 @@ import SettingsPanel from './components/SettingsPanel';
 import WeatherModal from './components/WeatherModal';
 import KittenSwearModal from './components/KittenSwearModal';
 import CreativeModesOverlay from './components/CreativeModesOverlay';
+import HiddenTaskTracker from './components/HiddenTaskTracker';
 
 // Icons
 import { Settings, BookOpen, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -141,6 +143,18 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('kitten_arrival_schedule', JSON.stringify(arrivalSchedule));
   }, [arrivalSchedule]);
+
+  // Ultrasonic Humidifier Water Level state (0-100)
+  const [waterLevel, setWaterLevel] = useState<number>(() => {
+    const saved = localStorage.getItem('humidifier_water_level');
+    return saved !== null ? parseInt(saved, 10) : 85;
+  });
+
+  const handleRefillWater = () => {
+    setWaterLevel(100);
+    localStorage.setItem('humidifier_water_level', '100');
+    addLog('Humidifier water reservoir successfully replenished with purified water.', 'success');
+  };
 
   // AI Trend Analyzer States
   const [trendConsecutiveDays, setTrendConsecutiveDays] = useState<number>(() => {
@@ -255,6 +269,21 @@ export default function App() {
   const [showWeeklyReportModal, setShowWeeklyReportModal] = useState<boolean>(false);
   const [showWeatherModal, setShowWeatherModal] = useState<boolean>(false);
   const [showSwearModal, setShowSwearModal] = useState<boolean>(false);
+  const [showSecretTracker, setShowSecretTracker] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey && e.shiftKey && (e.key === 'T' || e.key === 't')) ||
+        (e.ctrlKey && e.shiftKey && (e.key === 'H' || e.key === 'h'))
+      ) {
+        e.preventDefault();
+        setShowSecretTracker((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Creative Modes State Variables
   const [isExploding, setIsExploding] = useState<boolean>(false);
@@ -341,9 +370,11 @@ export default function App() {
           setEspData((prev) => ({
             ...prev,
             temperature: latestPoint.temperature,
+            humidity: latestPoint.humidity,
             motion: latestPoint.motion === 1,
             led: latestPoint.led,
             fan: latestPoint.fan,
+            humidifier: latestPoint.humidifier ?? 0,
           }));
           addLog(`[Cloud] Successfully loaded ${recentPoints.length} state log data points into chart.`, 'success');
         } else {
@@ -357,6 +388,7 @@ export default function App() {
           ...prev,
           led: ctrlState.led !== undefined ? ctrlState.led : prev.led,
           fan: ctrlState.fan !== undefined ? ctrlState.fan : prev.fan,
+          humidifier: ctrlState.humidifier !== undefined ? ctrlState.humidifier : prev.humidifier,
           auto: ctrlState.auto !== undefined ? ctrlState.auto : prev.auto,
           voice: ctrlState.voice !== undefined ? ctrlState.voice : prev.voice,
         }));
@@ -376,14 +408,15 @@ export default function App() {
       if (latestData.id === lastSeenId) return;
       lastSeenId = latestData.id;
 
-      // Telemetry strictly updates sensor readings (temperature & motion) to prevent feedback loops with control targets
+      // Telemetry strictly updates sensor readings (temperature, humidity & motion) to prevent feedback loops with control targets
       setEspData((prev) => ({
         ...prev,
         temperature: latestData.temperature,
+        humidity: latestData.humidity,
         motion: latestData.motion,
       }));
 
-      addLog(`[Cloud] Live Feed Sync: Received database telemetry (Temp: ${latestData.temperature}°C, Motion: ${latestData.motion ? 'Active' : 'Clear'})`, 'info');
+      addLog(`[Cloud] Live Feed Sync: Received database telemetry (Temp: ${latestData.temperature}°C, Humidity: ${latestData.humidity}%, Motion: ${latestData.motion ? 'Active' : 'Clear'})`, 'info');
     });
 
     return () => {
@@ -493,9 +526,24 @@ export default function App() {
           const noise = (Math.random() - 0.5) * 0.15;
           const nextTemp = Math.max(16, Math.min(42, Math.round((tempTarget + noise) * 10) / 10));
 
+          // Humidity simulator
+          let humidityTarget = prev.humidity !== null ? prev.humidity : 45;
+          if (prev.humidifier > 0) {
+            humidityTarget += (prev.humidifier / 255) * 0.4; // Humidifier adds moisture
+          }
+          // Fan dissipates humidity slightly faster towards baseline
+          const dissipationSpeed = prev.fan > 0 ? 0.08 : 0.03;
+          const humidityBaseline = 45;
+          if (humidityTarget < humidityBaseline) humidityTarget += 0.01;
+          if (humidityTarget > humidityBaseline) humidityTarget -= dissipationSpeed;
+
+          const humidityNoise = (Math.random() - 0.5) * 0.12;
+          const nextHumidity = Math.max(15, Math.min(95, Math.round((humidityTarget + humidityNoise) * 10) / 10));
+
           // AUTO AUTOMATION CONTROLS (If Auto mode is active, the simulator adjusts devices!)
           let nextLed = prev.led;
           let nextFan = prev.fan;
+          let nextHumidifier = prev.humidifier;
 
           if (prev.auto) {
             // Fan control rules: only turn on if motion is detected AND temperature is NOT below 24°C
@@ -527,6 +575,26 @@ export default function App() {
               }
             }
 
+            // Humidifier control rules: turn on if occupancy is detected and humidity is dry (< 40%)
+            if (prev.motion) {
+              if (nextHumidity < 40) {
+                if (prev.humidifier !== 140) {
+                  nextHumidifier = 140;
+                  addLog('Auto AI: Relative humidity is dry (<40%). Engaging humidifier transducer.', 'success');
+                }
+              } else if (nextHumidity >= 55) {
+                if (prev.humidifier !== 0) {
+                  nextHumidifier = 0;
+                  addLog('Auto AI: Relative humidity is optimal. Deactivating humidifier.', 'info');
+                }
+              }
+            } else {
+              if (prev.humidifier > 0) {
+                nextHumidifier = 0;
+                addLog('Auto AI: No motion detected. Pausing humidifier.', 'info');
+              }
+            }
+
             // Save energy if room is occupied but comfortable
             if (prev.motion && prev.led < 100) {
               nextLed = 120;
@@ -547,9 +615,11 @@ export default function App() {
           return {
             ...prev,
             temperature: nextTemp,
+            humidity: nextHumidity,
             motion: nextMotion,
             led: nextLed,
             fan: nextFan,
+            humidifier: nextHumidifier,
           };
         });
 
@@ -562,6 +632,24 @@ export default function App() {
           sensorStatus: 'OK',
         }));
 
+        // Deplete simulated humidifier water reservoir if active
+        if (currentEspData.humidifier > 0) {
+          setWaterLevel((prev) => {
+            const consumption = (currentEspData.humidifier / 255) * 0.4;
+            const nextVal = Math.max(0, parseFloat((prev - consumption).toFixed(2)));
+            localStorage.setItem('humidifier_water_level', Math.round(nextVal).toString());
+
+            if (nextVal <= 0 && currentEspData.humidifier > 0) {
+              // Auto shut-off humidifier
+              setTimeout(() => {
+                handleHumidifierChange(0);
+                addLog('Ultrasonic Humidifier auto-stopped: Water reservoir is empty. Refill required.', 'warning');
+              }, 0);
+            }
+            return nextVal;
+          });
+        }
+
         // Insert new history data point for the graphs
         setHistoryData((prev) => {
           const now = new Date();
@@ -569,9 +657,11 @@ export default function App() {
           const newPoint: HistoryDataPoint = {
             time: timeStr,
             temperature: espDataRef.current.temperature,
+            humidity: espDataRef.current.humidity,
             motion: espDataRef.current.motion ? 1 : 0,
             led: espDataRef.current.led,
             fan: espDataRef.current.fan,
+            humidifier: espDataRef.current.humidifier,
           };
           
           const lastPoint = prev[prev.length - 1];
@@ -614,9 +704,11 @@ export default function App() {
             const newPoint: HistoryDataPoint = {
               time: timeStr,
               temperature: data.temperature,
+              humidity: data.humidity,
               motion: data.motion ? 1 : 0,
               led: data.led,
               fan: data.fan,
+              humidifier: data.humidifier,
             };
             
             const lastPoint = prev[prev.length - 1];
@@ -667,9 +759,11 @@ export default function App() {
                 const newPoint: HistoryDataPoint = {
                   time: timeStr,
                   temperature: data.temperature,
+                  humidity: data.humidity,
                   motion: data.motion ? 1 : 0,
                   led: data.led,
                   fan: data.fan,
+                  humidifier: data.humidifier,
                 };
                 
                 const lastPoint = prev[prev.length - 1];
@@ -716,6 +810,10 @@ export default function App() {
 
   const handleFanChange = (val: number) => {
     sendCommand(`/fan?value=${val}`, { fan: val, auto: false }, `Climate fan set to ${val > 0 ? 'ON' : 'OFF'} [Manual Mode].`);
+  };
+
+  const handleHumidifierChange = (val: number) => {
+    sendCommand(`/humidifier?value=${val}`, { humidifier: val, auto: false }, `Ultrasonic Humidifier set to ${val} (${Math.round((val/255)*100)}%) [Manual Mode].`);
   };
 
   const handleVoiceButtonTrigger = () => {
@@ -866,6 +964,17 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isTrendRuleActive, learnedTime]);
 
+  if (showSecretTracker) {
+    return (
+      <HiddenTaskTracker
+        isOpen={true}
+        onClose={() => setShowSecretTracker(false)}
+        firestoreSyncEnabled={settings.firestoreSyncEnabled}
+        addLog={addLog}
+      />
+    );
+  }
+
   return (
     <div className={`min-h-screen pb-16 flex flex-col ${settings.lowLightMode ? 'brightness-90 saturate-75' : ''}`}>
       {/* 1. Header component */}
@@ -876,6 +985,7 @@ export default function App() {
         latency={latency}
         onOpenSettings={() => setShowSettingsModal(true)}
         onOpenDocs={() => setShowDocsModal(true)}
+        onOpenSecretTracker={() => setShowSecretTracker(true)}
       />
 
       {/* Main Grid Content Area */}
@@ -921,6 +1031,15 @@ export default function App() {
               isLoading={isFetching}
               arrivalSchedule={arrivalSchedule}
               onChangeArrivalSchedule={setArrivalSchedule}
+            />
+
+            {/* Ultrasonic Humidifier Control */}
+            <HumidifierControl
+              data={espData}
+              onHumidifierChange={handleHumidifierChange}
+              isLoading={isFetching}
+              waterLevel={Math.round(waterLevel)}
+              onRefillWater={handleRefillWater}
             />
 
             {/* Preloaded Automation Presets */}

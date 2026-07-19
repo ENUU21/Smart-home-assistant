@@ -14,6 +14,7 @@ interface HeaderProps {
   latency: number | null;
   onOpenSettings: () => void;
   onOpenDocs: () => void;
+  onOpenSecretTracker?: () => void;
 }
 
 export default function Header({
@@ -23,6 +24,7 @@ export default function Header({
   latency,
   onOpenSettings,
   onOpenDocs,
+  onOpenSecretTracker,
 }: HeaderProps) {
   const toggleSimulation = () => {
     setSettings((prev) => ({
@@ -40,7 +42,11 @@ export default function Header({
       <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-40 blur-sm pointer-events-none" />
 
       {/* Title & Brand */}
-      <div className="flex items-center gap-3.5">
+      <div 
+        className="flex items-center gap-3.5 cursor-pointer select-none"
+        onDoubleClick={onOpenSecretTracker}
+        title="Double-click to access secret target habits console"
+      >
         <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 p-[1px] shadow-[0_0_15px_rgba(0,255,208,0.25)]">
           <div className="w-full h-full rounded-xl bg-slate-950 flex items-center justify-center">
             {/* Minimalist Cat Logo using cyber typography */}

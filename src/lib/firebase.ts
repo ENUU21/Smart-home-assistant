@@ -18,7 +18,7 @@ import {
 } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { ESP32Data, HistoryDataPoint, Song } from '../types';
+import { ESP32Data, HistoryDataPoint, Song, TaskCompletion } from '../types';
 
 // Initialize Firebase App
 const app = initializeApp({
@@ -155,9 +155,11 @@ export async function saveTelemetry(data: Omit<ESP32Data, 'voice'> & { voice?: b
     const telemetryCollection = collection(dbInstance, path);
     const docRef = await addDoc(telemetryCollection, {
       temperature: data.temperature,
+      humidity: data.humidity,
       motion: data.motion,
       led: data.led,
       fan: data.fan,
+      humidifier: data.humidifier,
       auto: data.auto,
       voice: data.voice ?? false,
       timestamp: serverTimestamp(),
@@ -181,6 +183,7 @@ export async function getControlState(): Promise<Partial<ESP32Data> & { songUrl?
       return {
         led: data.led !== undefined ? Number(data.led) : undefined,
         fan: data.fan !== undefined ? Number(data.fan) : undefined,
+        humidifier: data.humidifier !== undefined ? Number(data.humidifier) : undefined,
         auto: data.auto !== undefined ? Boolean(data.auto) : undefined,
         voice: data.voice !== undefined ? Boolean(data.voice) : undefined,
         songUrl: data.songUrl,
@@ -193,6 +196,7 @@ export async function getControlState(): Promise<Partial<ESP32Data> & { songUrl?
       const initialControl = {
         led: 50,
         fan: 1,
+        humidifier: 0,
         auto: true,
         voice: false,
         songUrl: '',
@@ -224,6 +228,7 @@ export async function saveControlState(data: Partial<ESP32Data> & { songUrl?: st
 
     if (data.led !== undefined) payload.led = Number(data.led);
     if (data.fan !== undefined) payload.fan = Number(data.fan);
+    if (data.humidifier !== undefined) payload.humidifier = Number(data.humidifier);
     if (data.auto !== undefined) payload.auto = Boolean(data.auto);
     if (data.voice !== undefined) payload.voice = Boolean(data.voice);
     if (data.songUrl !== undefined) payload.songUrl = String(data.songUrl);
@@ -323,9 +328,11 @@ export async function getRecentTelemetry(limitCount: number = 15): Promise<Histo
       points.push({
         time: timeStr,
         temperature: (data.temperature !== null && data.temperature !== undefined) ? Number(data.temperature) : null,
+        humidity: (data.humidity !== null && data.humidity !== undefined) ? Number(data.humidity) : null,
         motion: data.motion ? 1 : 0,
         led: Number(data.led ?? 0),
         fan: Number(data.fan ?? 0),
+        humidifier: Number(data.humidifier ?? 0),
       });
     });
 
@@ -363,9 +370,11 @@ export function subscribeToLatestTelemetry(onUpdate: (data: ESP32Data & { id: st
         onUpdate({
           id: doc.id,
           temperature: (data.temperature !== null && data.temperature !== undefined) ? Number(data.temperature) : null,
+          humidity: (data.humidity !== null && data.humidity !== undefined) ? Number(data.humidity) : null,
           motion: Boolean(data.motion),
           led: Number(data.led ?? 0),
           fan: Number(data.fan ?? 0),
+          humidifier: Number(data.humidifier ?? 0),
           auto: Boolean(data.auto),
           voice: Boolean(data.voice),
         });
@@ -423,6 +432,47 @@ export async function pruneOldTelemetry(keepCount: number = 100): Promise<number
     }
     return 0;
   }, OperationType.DELETE, path);
+}
+
+/**
+ * Saves or updates a task completion count for a specific date and task name.
+ */
+export async function saveTaskCompletion(taskName: string, dateStr: string, count: number): Promise<void> {
+  const path = 'tasks';
+  return runWithFallback(async (dbInstance) => {
+    // Generate document ID as taskName + "_" + dateStr or use structured fields
+    const docId = `${encodeURIComponent(taskName)}_${dateStr}`;
+    const docRef = doc(dbInstance, path, docId);
+    await setDoc(docRef, {
+      taskName,
+      date: dateStr,
+      count: Number(count),
+      lastUpdated: serverTimestamp()
+    }, { merge: true });
+  }, OperationType.WRITE, path);
+}
+
+/**
+ * Fetches all task completions for a specific task name.
+ */
+export async function getTaskCompletions(taskName: string): Promise<TaskCompletion[]> {
+  const path = 'tasks';
+  return runWithFallback(async (dbInstance) => {
+    const tasksCollection = collection(dbInstance, path);
+    const querySnapshot = await getDocs(tasksCollection);
+    const completions: TaskCompletion[] = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.taskName === taskName) {
+        completions.push({
+          date: String(data.date),
+          count: Number(data.count),
+          taskName: String(data.taskName),
+        });
+      }
+    });
+    return completions;
+  }, OperationType.GET, path);
 }
 
 export { currentDb as db };

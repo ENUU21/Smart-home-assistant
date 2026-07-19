@@ -8,9 +8,11 @@ import { ESP32Data, SystemHealthMetrics, ActivityLog, HistoryDataPoint, PresetMo
 // Initial state for simulation
 export const initialESPState: ESP32Data = {
   temperature: 28,
+  humidity: 45,
   motion: false,
   led: 120,
   fan: 80,
+  humidifier: 0,
   voice: false,
   auto: false,
 };
@@ -56,16 +58,23 @@ export function generateInitialHistory(currentState: ESP32Data): HistoryDataPoin
     const temp = currentState.temperature !== null && currentState.temperature !== undefined
       ? Math.round((currentState.temperature - 2 + offset) * 10) / 10
       : null;
+    const humidityBase = currentState.humidity !== null && currentState.humidity !== undefined
+      ? currentState.humidity
+      : 45;
+    const humid = Math.max(10, Math.min(100, Math.round(humidityBase + Math.cos(i / 2) * 5 + (Math.random() - 0.5) * 4)));
     const ledVal = i === 0 ? currentState.led : Math.max(0, Math.min(255, currentState.led + Math.round((Math.random() - 0.5) * 40)));
     const fanVal = i === 0 ? currentState.fan : Math.max(0, Math.min(255, currentState.fan + Math.round((Math.random() - 0.5) * 30)));
+    const humidifierVal = i === 0 ? currentState.humidifier : Math.max(0, Math.min(255, currentState.humidifier + Math.round((Math.random() - 0.5) * 20)));
     const motionVal = Math.random() > 0.7 ? 1 : 0;
 
     history.push({
       time: timeStr,
       temperature: temp,
+      humidity: humid,
       motion: motionVal,
       led: ledVal,
       fan: fanVal,
+      humidifier: humidifierVal,
     });
   }
 
@@ -120,28 +129,32 @@ export function getPresetStateUpdates(mode: PresetMode): Partial<ESP32Data> & { 
         auto: false,
         led: 200, // bright crisp lighting
         fan: 100, // gentle cooling breeze
-        logMsg: 'Study Mode enabled: Lights set to crisp white (80%), Fan at quiet ventilation (40%).',
+        humidifier: 80, // comfortable humidity output
+        logMsg: 'Study Mode enabled: Lights set to crisp white (80%), Fan at quiet ventilation (40%), Humidifier at gentle mist (31%).',
       };
     case 'sleep':
       return {
         auto: false,
         led: 15, // dim warm guidance light
         fan: 45, // whisper-quiet mode
-        logMsg: 'Sleep Mode activated: Environment dimmed. Silent ventilation enabled.',
+        humidifier: 140, // optimal breathing comfort
+        logMsg: 'Sleep Mode activated: Environment dimmed. Silent ventilation and standard humidification active.',
       };
     case 'movie':
       return {
         auto: false,
         led: 40, // cinematic low glow
         fan: 70, // cozy room airflow
-        logMsg: 'Movie Mode engaged: Theater lighting levels set, quiet ventilation running.',
+        humidifier: 60, // stable low-frequency mist
+        logMsg: 'Movie Mode engaged: Theater lighting levels set, quiet ventilation and humidifier running.',
       };
     case 'gaming':
       return {
         auto: false,
         led: 255, // cyber neon burst lighting
         fan: 180, // high-speed system cooling
-        logMsg: 'Gaming Mode engaged: Neon glow maximized (100%), active room cooling activated.',
+        humidifier: 50, // standard low output
+        logMsg: 'Gaming Mode engaged: Neon glow maximized (100%), active cooling activated, humidifier stabilized.',
       };
     default:
       return { logMsg: 'System parameters refreshed.' };
@@ -166,4 +179,7 @@ export const mockVoiceCommands = [
   { command: 'Trigger haunted house ghost', response: 'EMERGENCY: ECTOPLASMIC PRESENCE DETECTED. SYSTEM COOLING FLUCTUATION ACTIVE.' },
   { command: 'Feline purr calming wave', response: 'ACTIVATING LOW-FREQUENCY PURR HUMIDIFIER HARMONICS.' },
   { command: 'Reset creative modes', response: 'Restoring default environmental balance. All creative sub-systems deactivated.' },
+  { command: 'Turn humidifier on', response: 'Activating ultrasonic transducer. Humidifier misting initialized at standard speed.', humidifier: 120 },
+  { command: 'Turn off humidifier', response: 'Humidifier transducer disabled. Mist stream stopped.', humidifier: 0 },
+  { command: 'Max humidifier speed', response: 'Engaging maximum jet-stream moisture dispersion.', humidifier: 255 },
 ];

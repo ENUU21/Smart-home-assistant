@@ -42,6 +42,7 @@ async function startServer() {
   let espControlState = {
     led: 50,
     fan: 1,
+    humidifier: 0,
     auto: true,
     voice: false,
     songUrl: "http://codesandbox.sandcat.nl/test.mp3",
@@ -63,6 +64,7 @@ async function startServer() {
           espControlState = {
             led: fields.led ? Number(fields.led.integerValue || fields.led.doubleValue || 50) : espControlState.led,
             fan: fields.fan ? Number(fields.fan.integerValue || fields.fan.doubleValue || 1) : espControlState.fan,
+            humidifier: fields.humidifier ? Number(fields.humidifier.integerValue || fields.humidifier.doubleValue || 0) : espControlState.humidifier,
             auto: fields.auto ? Boolean(fields.auto.booleanValue) : espControlState.auto,
             voice: fields.voice ? Boolean(fields.voice.booleanValue) : espControlState.voice,
             songUrl: fields.songUrl ? String(fields.songUrl.stringValue) : espControlState.songUrl,
@@ -94,9 +96,10 @@ async function startServer() {
   // Update ESP32 control state (called by the frontend to keep cache fresh)
   app.post("/api/control", (req, res) => {
     try {
-      const { led, fan, auto, voice, songUrl, songName, isPlaying, volume } = req.body;
+      const { led, fan, humidifier, auto, voice, songUrl, songName, isPlaying, volume } = req.body;
       if (led !== undefined) espControlState.led = Number(led);
       if (fan !== undefined) espControlState.fan = Number(fan);
+      if (humidifier !== undefined) espControlState.humidifier = Number(humidifier);
       if (auto !== undefined) espControlState.auto = Boolean(auto);
       if (voice !== undefined) espControlState.voice = Boolean(voice);
       if (songUrl !== undefined) espControlState.songUrl = String(songUrl);
@@ -261,10 +264,11 @@ Guidelines:
 - Transcribe the user's spoken words accurately into "transcript".
 - Formulate a witty, polite, futuristic response in "reply" (refer to yourself as KITTEN, and match the high-tech, glassmorphic mood).
 - If they explicitly ask to activate, switch to, or load an automation mode/profile, set "mode" to one of: 'manual', 'auto', 'study', 'sleep', 'movie', 'gaming'.
-- If the phrase "heading out" is detected or they are leaving the house, set "led" to 0, "fan" to 0, and "auto" to true.
-- If they specify a number for the light or fan (e.g. "fan 50" or "light 50"), always assume they want a percentage (0-100%). Map this percentage value to its 0-255 analog scale equivalent (e.g., 50% becomes 128, 100% becomes 255, 10% becomes 26). Do NOT set the fan/led directly to the number 50 unless they say "analog 50".
+- If the phrase "heading out" is detected or they are leaving the house, set "led" to 0, "fan" to 0, "humidifier" to 0, and "auto" to true.
+- If they specify a number for the light, fan, or humidifier (e.g. "fan 50", "light 50", or "humidifier 30"), always assume they want a percentage (0-100%). Map this percentage value to its 0-255 analog scale equivalent (e.g., 50% becomes 128, 100% becomes 255, 10% becomes 26). Do NOT set the fan/led/humidifier directly to the number 50 unless they say "analog 50".
 - If they ask to turn lights on, off, or dim/brighten them manually (without mentioning a profile), set "led" to a value between 0 (completely off) and 255 (maximum glow) using the percentage rule.
 - If they ask to speed up, slow down, or stop the cooling/ventilation fan manually, set "fan" to a value between 0 (off) and 255 (maximum speed) using the percentage rule.
+- If they ask to activate, turn on, speed up, slow down, or shut down the ultrasonic humidifier manually, set "humidifier" to a value between 0 (completely off) and 255 (maximum mist intensity) using the percentage rule.
 - If they ask to switch to auto, automatic, or manual mode generally, set "auto" to true or false.
 - If they ask to play music, play a song, stop music, or turn on the speakers:
   - Return "playMusic" with "songName" (e.g., "Synthwave Sunset", "Cozy Lofi", "Cyberpunk Overdrive") and "play" as true.
@@ -311,6 +315,10 @@ Make sure your reply reflects the actions you are taking.`;
                     fan: {
                       type: Type.INTEGER,
                       description: "Fan level (0-255)."
+                    },
+                    humidifier: {
+                      type: Type.INTEGER,
+                      description: "Humidifier mist intensity level (0-255)."
                     },
                     auto: {
                       type: Type.BOOLEAN,

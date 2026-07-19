@@ -227,6 +227,30 @@ export default function VoiceAssistant({
       } else {
         reply = "I heard you mention the light, but couldn't detect a level. Try 'turn light off' or 'set LED to 150'.";
       }
+    } else if (normalized.includes("humidifier") || normalized.includes("humidity") || normalized.includes("mist")) {
+      const numberMatch = normalized.match(/\d+/);
+      if (numberMatch) {
+        const val = parseInt(numberMatch[0], 10);
+        let constrainedVal;
+        if (val <= 100) {
+          constrainedVal = Math.round(val * 2.55);
+        } else {
+          constrainedVal = Math.min(255, val);
+        }
+        updates.humidifier = constrainedVal;
+        updates.auto = false;
+        reply = `Setting the ultrasonic humidifier speed to ${constrainedVal} (${val <= 100 ? val : Math.round((constrainedVal/255)*100)}%) [Manual Mode].`;
+      } else if (normalized.includes("on") || normalized.includes("active") || normalized.includes("start")) {
+        updates.humidifier = 255;
+        updates.auto = false;
+        reply = "Turning the ultrasonic humidifier ON [Full Mist Output].";
+      } else if (normalized.includes("off") || normalized.includes("stop") || normalized.includes("shut")) {
+        updates.humidifier = 0;
+        updates.auto = false;
+        reply = "Turning the ultrasonic humidifier OFF.";
+      } else {
+        reply = "I heard you mention the humidifier, but couldn't detect a speed. Try 'turn humidifier on' or 'set humidifier to 60%'.";
+      }
     } else {
       reply = "Local command received but not matched. Try saying 'turn fan on', 'set fan to 255', or 'movie mode'.";
     }
@@ -729,6 +753,7 @@ export default function VoiceAssistant({
         } else {
           if (resData.led !== undefined) updates.led = resData.led;
           if (resData.fan !== undefined) updates.fan = resData.fan;
+          if (resData.humidifier !== undefined) updates.humidifier = resData.humidifier;
           if (resData.auto !== undefined) updates.auto = resData.auto;
         }
 
@@ -793,6 +818,7 @@ export default function VoiceAssistant({
         } else {
           if (cmdObj.led !== undefined) updates.led = cmdObj.led;
           if (cmdObj.fan !== undefined) updates.fan = cmdObj.fan;
+          if ((cmdObj as any).humidifier !== undefined) updates.humidifier = (cmdObj as any).humidifier;
         }
         
         onCommandTriggered(
