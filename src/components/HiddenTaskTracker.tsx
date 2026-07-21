@@ -8,10 +8,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Plus, Minus, Flame, Calendar, BarChart3, 
   Sparkles, Check, Edit2, Info, RefreshCw, Shield, ShieldAlert, 
-  Activity, Award, ArrowLeft, Trash2
+  Activity, Award, ArrowLeft, Trash2, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { saveTaskCompletion, getTaskCompletions, clearTaskCompletions } from '../lib/firebase';
+import { AchievementsSection } from './AchievementsSection';
 
 interface HiddenTaskTrackerProps {
   isOpen: boolean;
@@ -49,7 +50,7 @@ export default function HiddenTaskTracker({
   });
 
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tracker' | 'weekly' | 'monthly' | 'yearly'>('tracker');
+  const [activeTab, setActiveTab] = useState<'tracker' | 'weekly' | 'monthly' | 'yearly' | 'achievements'>('tracker');
 
   const todayStr = useMemo(() => {
     const now = new Date();
@@ -59,6 +60,120 @@ export default function HiddenTaskTracker({
   }, []);
 
   const todayCount = completions[todayStr] || 0;
+
+  // Selected date state (defaults to today)
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(() => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset();
+    const localNow = new Date(now.getTime() - (offset * 60 * 1000));
+    return localNow.toISOString().split('T')[0];
+  });
+
+  const selectedCount = completions[selectedDateStr] || 0;
+
+  // Calendar navigation states
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
+
+  const MONTH_NAMES = useMemo(() => [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ], []);
+
+  // Compute calendar days for the grid
+  const calendarDays = useMemo(() => {
+    const year = calendarYear;
+    const month = calendarMonth;
+    
+    // First day of the month
+    const firstDay = new Date(year, month, 1);
+    const startingDayOfWeek = firstDay.getDay(); // 0 is Sunday, 6 is Saturday
+    
+    // Total days in month
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    
+    const days: { dateStr: string; dayNum: number; isToday: boolean; count: number; isCurrentMonth: boolean }[] = [];
+    
+    // Padding from previous month
+    const prevMonthTotalDays = new Date(year, month, 0).getDate();
+    for (let i = startingDayOfWeek - 1; i >= 0; i--) {
+      const d = prevMonthTotalDays - i;
+      const prevMonth = month === 0 ? 11 : month - 1;
+      const prevYear = month === 0 ? year - 1 : year;
+      const dStr = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({
+        dateStr: dStr,
+        dayNum: d,
+        isToday: dStr === todayStr,
+        count: completions[dStr] || 0,
+        isCurrentMonth: false
+      });
+    }
+    
+    // Days of current month
+    for (let d = 1; d <= totalDays; d++) {
+      const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({
+        dateStr: dStr,
+        dayNum: d,
+        isToday: dStr === todayStr,
+        count: completions[dStr] || 0,
+        isCurrentMonth: true
+      });
+    }
+    
+    // Padding for next month to complete the grid (usually 42 cells = 6 weeks)
+    const remainingCells = 42 - days.length;
+    for (let d = 1; d <= remainingCells; d++) {
+      const nextMonth = month === 11 ? 0 : month + 1;
+      const nextYear = month === 11 ? year + 1 : year;
+      const dStr = `${nextYear}-${String(nextMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({
+        dateStr: dStr,
+        dayNum: d,
+        isToday: dStr === todayStr,
+        count: completions[dStr] || 0,
+        isCurrentMonth: false
+      });
+    }
+    
+    return days;
+  }, [calendarYear, calendarMonth, completions, todayStr]);
+
+  // Compute statistics for the visual progress bar / consistency score
+  const monthStats = useMemo(() => {
+    const currentMonthDays = calendarDays.filter(d => d.isCurrentMonth);
+    const elapsedDays = currentMonthDays.filter(d => d.dateStr <= todayStr);
+    const totalOccurrences = elapsedDays.reduce((sum, d) => sum + d.count, 0);
+    const cleanDays = elapsedDays.filter(d => d.count === 0).length;
+    const totalDaysCount = elapsedDays.length || 1;
+    const cleanPercentage = Math.round((cleanDays / totalDaysCount) * 100);
+    
+    return {
+      totalOccurrences,
+      cleanDays,
+      totalDaysCount,
+      cleanPercentage
+    };
+  }, [calendarDays, todayStr]);
+
+  const handlePrevMonth = () => {
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear(prev => prev - 1);
+    } else {
+      setCalendarMonth(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear(prev => prev + 1);
+    } else {
+      setCalendarMonth(prev => prev + 1);
+    }
+  };
 
   // Sync with Firestore if enabled
   useEffect(() => {
@@ -88,18 +203,18 @@ export default function HiddenTaskTracker({
     loadFirestoreData();
   }, [isOpen, firestoreSyncEnabled, taskName]);
 
-  // Save changes locally and optionally in Firestore
-  const updateCount = async (newCount: number) => {
+  // Save changes locally and optionally in Firestore for a specific date
+  const updateCountForDate = async (dateStr: string, newCount: number) => {
     const updated = {
       ...completions,
-      [todayStr]: Math.max(0, newCount),
+      [dateStr]: Math.max(0, newCount),
     };
     setCompletions(updated);
     localStorage.setItem('kitten_secret_task_completions', JSON.stringify(updated));
 
     if (firestoreSyncEnabled) {
       try {
-        await saveTaskCompletion(taskName, todayStr, Math.max(0, newCount));
+        await saveTaskCompletion(taskName, dateStr, Math.max(0, newCount));
       } catch (err) {
         console.warn('Failed to save task completion to Firestore:', err);
       }
@@ -107,16 +222,18 @@ export default function HiddenTaskTracker({
   };
 
   const handleIncrement = () => {
-    const nextCount = todayCount + 1;
-    updateCount(nextCount);
-    addLog(`Logged 1 incident of "${taskName}". Total today: ${nextCount}`, 'warning');
+    const nextCount = selectedCount + 1;
+    updateCountForDate(selectedDateStr, nextCount);
+    const dateLabel = selectedDateStr === todayStr ? 'today' : selectedDateStr;
+    addLog(`Logged 1 incident of "${taskName}" for ${dateLabel}. Total: ${nextCount}`, 'warning');
   };
 
   const handleDecrement = () => {
-    if (todayCount > 0) {
-      const nextCount = todayCount - 1;
-      updateCount(nextCount);
-      addLog(`Corrected count for "${taskName}". Total today: ${nextCount}`, 'info');
+    if (selectedCount > 0) {
+      const nextCount = selectedCount - 1;
+      updateCountForDate(selectedDateStr, nextCount);
+      const dateLabel = selectedDateStr === todayStr ? 'today' : selectedDateStr;
+      addLog(`Corrected count for "${taskName}" for ${dateLabel}. Total: ${nextCount}`, 'info');
     }
   };
 
@@ -133,6 +250,7 @@ export default function HiddenTaskTracker({
   const handleResetData = async () => {
     setCompletions({});
     localStorage.setItem('kitten_secret_task_completions', JSON.stringify({}));
+    setSelectedDateStr(todayStr); // Reset selected date to today
     setShowResetConfirm(false);
 
     if (firestoreSyncEnabled) {
@@ -431,10 +549,10 @@ export default function HiddenTaskTracker({
         </div>
 
         {/* Short, Simple Buttons for Navigation to Avoid Wrapping */}
-        <div className="flex border-b border-slate-900 gap-1.5">
+        <div className="flex border-b border-slate-900 gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
           <button
             onClick={() => setActiveTab('tracker')}
-            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'tracker'
                 ? 'bg-slate-900 border border-slate-800 text-emerald-400 font-medium'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/20'
@@ -444,7 +562,7 @@ export default function HiddenTaskTracker({
           </button>
           <button
             onClick={() => setActiveTab('weekly')}
-            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'weekly'
                 ? 'bg-slate-900 border border-slate-800 text-emerald-400 font-medium'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/20'
@@ -454,7 +572,7 @@ export default function HiddenTaskTracker({
           </button>
           <button
             onClick={() => setActiveTab('monthly')}
-            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'monthly'
                 ? 'bg-slate-900 border border-slate-800 text-emerald-400 font-medium'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/20'
@@ -464,13 +582,23 @@ export default function HiddenTaskTracker({
           </button>
           <button
             onClick={() => setActiveTab('yearly')}
-            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'yearly'
                 ? 'bg-slate-900 border border-slate-800 text-emerald-400 font-medium'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/20'
             }`}
           >
             Yearly
+          </button>
+          <button
+            onClick={() => setActiveTab('achievements')}
+            className={`px-3 py-1.5 rounded text-xs transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'achievements'
+                ? 'bg-slate-900 border border-slate-800 text-emerald-400 font-medium'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/20'
+            }`}
+          >
+            Achievements
           </button>
         </div>
 
@@ -491,108 +619,123 @@ export default function HiddenTaskTracker({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                  className="flex flex-col gap-6"
                 >
-                  {/* Left panel: Name & Log controls */}
-                  <div className="flex flex-col gap-4">
-                    {/* Habit Name Panel */}
-                    <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-5">
-                      <div className="text-[10px] uppercase text-slate-500 mb-1.5 font-medium">Habit Label</div>
-                      {isEditingName ? (
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={tempTaskName}
-                            onChange={(e) => setTempTaskName(e.target.value)}
-                            className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-slate-750"
-                            placeholder="Enter habit name..."
-                            maxLength={35}
-                          />
-                          <button
-                            onClick={handleSaveName}
-                            className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setTempTaskName(taskName);
-                              setIsEditingName(false);
-                            }}
-                            className="p-1.5 bg-slate-900 border border-slate-800 text-slate-400 rounded cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-slate-200">{taskName}</span>
-                          <button
-                            onClick={() => {
-                              setTempTaskName(taskName);
-                              setIsEditingName(true);
-                            }}
-                            className="p-1 hover:bg-slate-900 rounded text-slate-500 hover:text-slate-300 cursor-pointer"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Simple Interaction Controls */}
-                    <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-6 flex flex-col items-center justify-center gap-5 min-h-[200px]">
-                      <div className="text-[10px] uppercase text-slate-500 font-medium tracking-wider">
-                        Log Occurrence
+                  {/* Top Row: Left Controls & Right Status */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left panel: Name & Log controls */}
+                    <div className="flex flex-col gap-4">
+                      {/* Habit Name Panel */}
+                      <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-5">
+                        <div className="text-[10px] uppercase text-slate-500 mb-1.5 font-medium">Habit Label</div>
+                        {isEditingName ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={tempTaskName}
+                              onChange={(e) => setTempTaskName(e.target.value)}
+                              className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-slate-750"
+                              placeholder="Enter habit name..."
+                              maxLength={35}
+                            />
+                            <button
+                              onClick={handleSaveName}
+                              className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setTempTaskName(taskName);
+                                setIsEditingName(false);
+                              }}
+                              className="p-1.5 bg-slate-900 border border-slate-800 text-slate-400 rounded cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-slate-200">{taskName}</span>
+                            <button
+                              onClick={() => {
+                                setTempTaskName(taskName);
+                                setIsEditingName(true);
+                              }}
+                              className="p-1 hover:bg-slate-900 rounded text-slate-500 hover:text-slate-300 cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      
-                      <button
-                        onClick={handleIncrement}
-                        className={`w-24 h-24 rounded-full border flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer ${
-                          todayCount > 0
-                            ? 'bg-rose-950/20 border-rose-500/30 text-rose-400 hover:border-rose-400'
-                            : 'bg-slate-900/50 border-emerald-500/20 text-emerald-400 hover:border-emerald-400'
-                        }`}
-                      >
-                        <Plus className="w-6 h-6" />
-                        <span className="text-[9px] uppercase font-bold tracking-wider">Add</span>
-                      </button>
 
-                      {todayCount > 0 && (
+                      {/* Simple Interaction Controls */}
+                      <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-6 flex flex-col items-center justify-center gap-5 min-h-[200px]">
+                        <div className="text-[10px] uppercase text-slate-500 font-medium tracking-wider text-center">
+                          Log Occurrence {selectedDateStr !== todayStr && <span className="text-amber-400">({selectedDateStr})</span>}
+                        </div>
+                        
                         <button
-                          onClick={handleDecrement}
-                          className="px-2.5 py-1 text-[10px] rounded border border-slate-800 bg-slate-900 text-slate-400 hover:bg-slate-850 cursor-pointer flex items-center gap-1"
+                          onClick={handleIncrement}
+                          className={`w-24 h-24 rounded-full border flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer ${
+                            selectedCount > 0
+                              ? 'bg-rose-950/20 border-rose-500/30 text-rose-400 hover:border-rose-400'
+                              : 'bg-slate-900/50 border-emerald-500/20 text-emerald-400 hover:border-emerald-400'
+                          }`}
                         >
-                          <Minus className="w-3 h-3" /> Remove Mistake
+                          <Plus className="w-6 h-6" />
+                          <span className="text-[9px] uppercase font-bold tracking-wider">Add</span>
                         </button>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Right panel: Today's Status */}
-                  <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-6 flex flex-col justify-between min-h-[280px]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase text-slate-500 font-medium tracking-wider">Today's Log</span>
-                      <span className="text-xs text-slate-500">{todayStr}</span>
-                    </div>
-
-                    <div className="flex flex-col items-center justify-center my-6">
-                      <div className={`w-32 h-32 rounded-full border-2 flex flex-col items-center justify-center ${
-                        todayCount === 0 
-                          ? 'border-emerald-500/20 bg-emerald-950/5 text-emerald-400' 
-                          : 'border-rose-500/20 bg-rose-950/5 text-rose-400'
-                      }`}>
-                        <span className="text-3xl font-semibold font-mono">{todayCount}</span>
-                        <span className="text-[10px] uppercase text-slate-500 mt-1">occurrences</span>
+                        {selectedCount > 0 && (
+                          <button
+                            onClick={handleDecrement}
+                            className="px-2.5 py-1 text-[10px] rounded border border-slate-800 bg-slate-900 text-slate-400 hover:bg-slate-850 cursor-pointer flex items-center gap-1"
+                          >
+                            <Minus className="w-3 h-3" /> Remove Mistake
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    <div className="text-xs text-slate-400 text-center">
-                      {todayCount === 0 ? (
-                        <span>Clean day so far. Keep it up!</span>
-                      ) : (
-                        <span>Logged {todayCount} incident{todayCount > 1 ? 's' : ''} today.</span>
-                      )}
+                    {/* Right panel: Today's Status */}
+                    <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-6 flex flex-col justify-between min-h-[280px]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase text-slate-500 font-medium tracking-wider">
+                            {selectedDateStr === todayStr ? "Today's Log" : "Daily Log"}
+                          </span>
+                          {selectedDateStr !== todayStr && (
+                            <button
+                              onClick={() => setSelectedDateStr(todayStr)}
+                              className="px-1.5 py-0.5 rounded bg-slate-900 text-[9px] text-emerald-400 hover:text-emerald-300 border border-slate-800 hover:border-emerald-500/30 cursor-pointer transition-all"
+                            >
+                              Back to Today
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500 font-mono">{selectedDateStr}</span>
+                      </div>
+
+                      <div className="flex flex-col items-center justify-center my-6">
+                        <div className={`w-32 h-32 rounded-full border-2 flex flex-col items-center justify-center ${
+                          selectedCount === 0 
+                            ? 'border-emerald-500/20 bg-emerald-950/5 text-emerald-400' 
+                            : 'border-rose-500/20 bg-rose-950/5 text-rose-400'
+                        }`}>
+                          <span className="text-3xl font-semibold font-mono">{selectedCount}</span>
+                          <span className="text-[10px] uppercase text-slate-500 mt-1">occurrences</span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-slate-400 text-center">
+                        {selectedCount === 0 ? (
+                          <span className="text-emerald-400">Clean day! Keep it up.</span>
+                        ) : (
+                          <span className="text-rose-400">Logged {selectedCount} incident{selectedCount > 1 ? 's' : ''} on this day.</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -680,42 +823,119 @@ export default function HiddenTaskTracker({
                   exit={{ opacity: 0 }}
                   className="flex flex-col gap-4"
                 >
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-4">
-                      <div className="text-[10px] uppercase text-slate-500">Clean Days</div>
-                      <div className="text-base font-semibold text-emerald-400 mt-1">
-                        {monthlyStats.cleanDays} <span className="text-xs text-slate-500 font-normal">/ 30 days</span>
+                  {/* Calendar Grid & Consistency Progress Bar Row */}
+                  <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-5 flex flex-col gap-5">
+                    {/* Calendar Header with navigation */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-1">
+                        <h3 className="text-xs font-semibold uppercase text-slate-400 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Habit History Calendar</span>
+                        </h3>
+                        <p className="text-[10px] text-slate-500">
+                          Click a date block below to view or edit logs for that day
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handlePrevMonth}
+                          className="p-1 border border-slate-800 bg-slate-900 rounded text-slate-400 hover:text-slate-200 cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-xs font-semibold text-slate-300 font-mono min-w-[110px] text-center">
+                          {MONTH_NAMES[calendarMonth]} {calendarYear}
+                        </span>
+                        <button
+                          onClick={handleNextMonth}
+                          className="p-1 border border-slate-800 bg-slate-900 rounded text-slate-400 hover:text-slate-200 cursor-pointer"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-4">
-                      <div className="text-[10px] uppercase text-slate-500">Total Occurrences</div>
-                      <div className="text-base font-semibold text-rose-400 mt-1">
-                        {monthlyStats.totalOccurrences} <span className="text-xs text-slate-500 font-normal">times</span>
+
+                    {/* Progress Bar Container */}
+                    <div className="flex flex-col gap-2 bg-slate-900/10 border border-slate-900/60 rounded-lg p-4">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400 font-medium">Monthly Consistency Score</span>
+                        <span className="font-semibold font-mono text-emerald-400">{monthStats.cleanPercentage}% Clean</span>
+                      </div>
+                      
+                      {/* Progress Bar Track */}
+                      <div className="h-3 w-full bg-slate-900 rounded-full overflow-hidden flex">
+                        <div 
+                          className="h-full bg-emerald-500 transition-all duration-500" 
+                          style={{ width: `${monthStats.cleanPercentage}%` }}
+                        />
+                        <div 
+                          className="h-full bg-rose-500 transition-all duration-500" 
+                          style={{ width: `${100 - monthStats.cleanPercentage}%` }}
+                        />
+                      </div>
+
+                      {/* Legend / Breakdown */}
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span>{monthStats.cleanDays} Successful Day{monthStats.cleanDays !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-rose-500" />
+                          <span>{monthStats.totalDaysCount - monthStats.cleanDays} Missed Day{monthStats.totalDaysCount - monthStats.cleanDays !== 1 ? 's' : ''}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="border border-slate-900 bg-slate-900/20 rounded-lg p-5">
-                    <h3 className="text-xs font-semibold uppercase text-slate-400 mb-4">
-                      30-Day Grid
-                    </h3>
+                    {/* Calendar Days Grid */}
+                    <div className="grid grid-cols-7 gap-1.5 text-center">
+                      {/* Weekday headers */}
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                        <div key={day} className="text-[10px] font-bold text-slate-500 uppercase py-1">
+                          {day}
+                        </div>
+                      ))}
 
-                    <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2">
-                      {monthlyStats.gridData.map((day, idx) => {
+                      {/* Calendar cells */}
+                      {calendarDays.map((day) => {
+                        const isSelected = selectedDateStr === day.dateStr;
+                        const isFuture = day.dateStr > todayStr;
+                        
+                        let cellBg = "bg-emerald-500/5 text-emerald-500/60 border border-emerald-500/10";
+                        if (day.count > 0) {
+                          cellBg = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
+                        } else if (isFuture) {
+                          cellBg = "bg-slate-900/10 text-slate-700 border border-slate-900/40 cursor-not-allowed";
+                        } else {
+                          // Clean past/present day
+                          cellBg = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/15";
+                        }
+
+                        // Different month styling
+                        const monthOpacity = day.isCurrentMonth ? "opacity-100" : "opacity-30";
+
                         return (
-                          <div 
-                            key={idx}
-                            className={`p-2.5 rounded border text-[10px] flex flex-col justify-between transition-all ${
-                              day.isClean 
-                                ? 'bg-emerald-950/10 border-emerald-500/10 text-emerald-400' 
-                                : 'bg-rose-950/10 border-rose-500/10 text-rose-400'
-                            }`}
+                          <button
+                            key={day.dateStr}
+                            disabled={isFuture}
+                            onClick={() => setSelectedDateStr(day.dateStr)}
+                            className={`p-2 rounded flex flex-col items-center justify-between h-11 transition-all relative ${cellBg} ${monthOpacity} ${
+                              isSelected ? 'ring-2 ring-emerald-500 z-10 scale-105' : 'hover:scale-[1.02]'
+                            } ${isFuture ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                           >
-                            <span className="text-[9px] text-slate-500">{day.date}</span>
-                            <div className="text-xs font-semibold font-mono mt-1">
-                              {day.Count} time{day.Count !== 1 ? 's' : ''}
-                            </div>
-                          </div>
+                            <span className="text-[9px] font-semibold">{day.dayNum}</span>
+                            
+                            {/* Dot indicator or tick */}
+                            {!isFuture && (
+                              <div className="w-1.5 h-1.5 rounded-full mt-0.5">
+                                {day.count > 0 ? (
+                                  <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                ) : (
+                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                )}
+                              </div>
+                            )}
+                          </button>
                         );
                       })}
                     </div>
@@ -791,6 +1011,22 @@ export default function HiddenTaskTracker({
                       </div>
                     </div>
                   </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'achievements' && (
+                <motion.div
+                  key="tab-achievements"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col gap-4"
+                >
+                  <AchievementsSection 
+                    completions={completions}
+                    streaks={streaks}
+                    taskName={taskName}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
